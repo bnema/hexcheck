@@ -1,0 +1,11 @@
+version: "2"
+linters:
+  enable:
+    - hexcheck
+  settings:
+    custom:
+      hexcheck:
+        type: module
+        description: Checks hexagonal architecture boundaries.
+        settings:
+          config: .hexcheck.yaml

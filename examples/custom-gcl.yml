@@ -1,0 +1,7 @@
+version: v2.12.2
+name: hex-golangci-lint
+destination: ./bin
+plugins:
+  - module: github.com/bnema/hexcheck
+    import: github.com/bnema/hexcheck/golangci
+    version: v0.1.0

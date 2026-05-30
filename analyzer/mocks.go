@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"go/ast"
+	"go/types"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,11 @@ func (r runner) checkMocks(file *ast.File, filePath string, current config.Match
 		}
 	}
 
+	portInterfaces := r.importedPortInterfaces(file)
+	if len(portInterfaces) == 0 {
+		return
+	}
+
 	ast.Inspect(file, func(n ast.Node) bool {
 		ts, ok := n.(*ast.TypeSpec)
 		if !ok {
@@ -29,9 +35,48 @@ func (r runner) checkMocks(file *ast.File, filePath string, current config.Match
 		}
 
 		name := strings.ToLower(ts.Name.Name)
-		if strings.HasPrefix(name, "fake") || strings.HasSuffix(name, "fake") || strings.HasPrefix(name, "stub") || strings.HasSuffix(name, "stub") {
-			r.report(ts.Name.Pos(), "no-local-fakes-for-ports", filePath, "local test double %s declared in test file; prefer generated mocks when a port interface is available", ts.Name.Name)
+		if !isTestDoubleName(name) {
+			return true
+		}
+		obj, ok := r.pass.TypesInfo.Defs[ts.Name].(*types.TypeName)
+		if !ok || obj.Type() == nil {
+			return true
+		}
+		for _, iface := range portInterfaces {
+			if types.Implements(obj.Type(), iface) || types.Implements(types.NewPointer(obj.Type()), iface) {
+				r.report(ts.Name.Pos(), "no-local-fakes-for-ports", filePath, "local test double %s implements port interface %s; prefer generated mocks when available", ts.Name.Name, iface.String())
+				break
+			}
 		}
 		return true
 	})
+}
+
+func (r runner) importedPortInterfaces(file *ast.File) []*types.Interface {
+	var out []*types.Interface
+	for _, imp := range file.Imports {
+		pkgName, ok := r.pass.TypesInfo.Implicits[imp].(*types.PkgName)
+		if !ok || pkgName.Imported() == nil {
+			continue
+		}
+		if match, ok := r.cfg.ComponentForPath(r.relImportPath(pkgName.Imported().Path())); !ok || match.Role != config.RolePorts {
+			continue
+		}
+		scope := pkgName.Imported().Scope()
+		for _, name := range scope.Names() {
+			obj, ok := scope.Lookup(name).(*types.TypeName)
+			if !ok {
+				continue
+			}
+			iface, ok := obj.Type().Underlying().(*types.Interface)
+			if ok {
+				out = append(out, iface.Complete())
+			}
+		}
+	}
+	return out
+}
+
+func isTestDoubleName(name string) bool {
+	return strings.HasPrefix(name, "fake") || strings.HasSuffix(name, "fake") || strings.HasPrefix(name, "stub") || strings.HasSuffix(name, "stub")
 }

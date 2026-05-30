@@ -7,20 +7,32 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-func TestAnalyzerBoundaryImports(t *testing.T) {
-	cfg := testConfig()
-	analysistest.Run(t, analysistest.TestData(), New(Options{Config: cfg, ModulePath: "example.com/project"}),
-		"example.com/project/internal/domain",
-		"example.com/project/internal/application/usecase",
-		"example.com/project/internal/infrastructure/http",
-	)
-}
+func TestAnalyzer(t *testing.T) {
+	tests := []struct {
+		name     string
+		patterns []string
+	}{
+		{
+			name: "boundary imports",
+			patterns: []string{
+				"example.com/project/internal/domain",
+				"example.com/project/internal/application/usecase",
+				"example.com/project/internal/infrastructure/http",
+			},
+		},
+		{
+			name: "type leaks",
+			patterns: []string{
+				"example.com/project/internal/application/port",
+			},
+		},
+	}
 
-func TestAnalyzerTypeLeaks(t *testing.T) {
-	cfg := testConfig()
-	analysistest.Run(t, analysistest.TestData(), New(Options{Config: cfg, ModulePath: "example.com/project"}),
-		"example.com/project/internal/application/port",
-	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			analysistest.Run(t, analysistest.TestData(), New(Options{Config: testConfig(), ModulePath: "example.com/project"}), tt.patterns...)
+		})
+	}
 }
 
 func testConfig() *config.Config {
@@ -36,6 +48,9 @@ func testConfig() *config.Config {
 		Rules: config.DefaultRuleSeverities(),
 		ExternalTypes: config.ExternalTypes{
 			FrameworkPackages: []string{"example.com/framework"},
+		},
+		Allow: []config.Allow{
+			{Rule: "no-infra-imports-in-usecase", Path: "internal/application/usecase/*_test.go", Reason: "test architecture rule has a more specific diagnostic"},
 		},
 	}
 	if err := cfg.Validate(); err != nil {

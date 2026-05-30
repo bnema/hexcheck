@@ -59,10 +59,16 @@ hexcheck --config .hexcheck.yaml ./...
 
 ## golangci-lint module plugin
 
-Build a custom golangci-lint binary:
+Build a custom golangci-lint binary using the module plugin system:
+
+```bash
+golangci-lint custom -c examples/custom-gcl.yml
+```
+
+Example builder config:
 
 ```yaml
-# .custom-gcl.yml
+# examples/custom-gcl.yml
 version: v2.12.2
 name: hex-golangci-lint
 destination: ./bin
@@ -72,10 +78,10 @@ plugins:
     version: v0.1.0
 ```
 
-Enable it:
+Enable it in a project:
 
 ```yaml
-# .golangci.yml
+# examples/golangci.yml
 version: "2"
 linters:
   enable:
