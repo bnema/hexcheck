@@ -1,23 +1,39 @@
 package http
 
-func ValidateOrder(total int, active bool, region string) bool { // want "suspicious-business-logic-in-adapter"
-	if total <= 0 {
+import "example.com/project/internal/domain"
+
+func ValidateOrder(order *domain.User) error { // want "suspicious-business-logic-in-adapter"
+	if order.Name == "" {
+		return domain.PolicyError{}
+	}
+	order.Name = "approved"
+	return nil
+}
+
+func RunTransportRetries(attempts int) bool {
+	if attempts > 10 {
 		return false
 	}
-	if !active {
-		return false
-	}
-	if region == "" {
-		return false
-	}
-	if total > 1000 {
-		return region == "trusted"
-	}
-	if region == "blocked" {
-		return false
-	}
-	if total == 42 {
+	if attempts == 1 {
 		return true
 	}
-	return true
+	if attempts == 2 {
+		return true
+	}
+	if attempts == 3 {
+		return true
+	}
+	if attempts == 4 {
+		return true
+	}
+	if attempts == 5 {
+		return true
+	}
+	if attempts == 6 {
+		return true
+	}
+	if attempts == 7 {
+		return true
+	}
+	return false
 }

@@ -56,6 +56,10 @@ func New(opts Options) *analysis.Analyzer {
 func resolveConfig(opts Options, configPathFlag, rootFlag string) (*config.Config, string, error) {
 	if opts.Config != nil {
 		cfg := cloneConfig(opts.Config)
+		cfg.ApplyDefaults()
+		if err := cfg.Validate(); err != nil {
+			return nil, "", err
+		}
 		if cfg.Root != "" {
 			root, err := filepath.Abs(cfg.Root)
 			if err != nil {
@@ -142,6 +146,7 @@ func (r runner) run() {
 	if !ok || current.Role == config.RoleIgnore {
 		return
 	}
+	businessDiagnostics := 0
 	for _, file := range r.pass.Files {
 		filePath := r.filePath(file)
 		if isGeneratedFile(file) {
@@ -150,7 +155,7 @@ func (r runner) run() {
 		r.checkImports(file, filePath, current)
 		r.checkTypeLeaks(file, filePath, current)
 		r.checkMissingMocks(file, filePath, current)
-		r.checkBusinessLogic(file, filePath, current)
+		r.checkBusinessLogic(file, filePath, current, &businessDiagnostics)
 		r.checkMocks(file, filePath, current)
 	}
 }
@@ -255,11 +260,12 @@ func (r runner) matchesExternal(pkg string) bool {
 	return false
 }
 
-func (r runner) report(pos token.Pos, rule, filePath, format string, args ...any) {
+func (r runner) report(pos token.Pos, rule, filePath, format string, args ...any) bool {
 	if !r.cfg.RuleEnabled(rule) || r.cfg.IsAllowed(rule, filePath) || r.isExcluded(rule, filePath) {
-		return
+		return false
 	}
 	r.pass.Reportf(pos, rule+": "+format, args...)
+	return true
 }
 
 func (r runner) isExcluded(rule, filePath string) bool {

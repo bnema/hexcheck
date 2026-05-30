@@ -19,6 +19,11 @@ func cloneConfig(in *config.Config) *config.Config {
 	out.ExternalTypes.FrameworkPackages = append([]string(nil), in.ExternalTypes.FrameworkPackages...)
 	out.ExternalTypes.AdapterTypePackages = append([]string(nil), in.ExternalTypes.AdapterTypePackages...)
 	out.Heuristics.BusinessKeywords = append([]string(nil), in.Heuristics.BusinessKeywords...)
+	out.Heuristics.BusinessLogicThreshold = cloneInt(in.Heuristics.BusinessLogicThreshold)
+	out.Heuristics.BusinessLogicMinStrongSignals = cloneInt(in.Heuristics.BusinessLogicMinStrongSignals)
+	out.Heuristics.BusinessLogicMinWeakSignals = cloneInt(in.Heuristics.BusinessLogicMinWeakSignals)
+	out.Heuristics.BusinessLogicMaxFunctionNodes = cloneInt(in.Heuristics.BusinessLogicMaxFunctionNodes)
+	out.Heuristics.BusinessLogicMaxDiagnosticsPerPackage = cloneInt(in.Heuristics.BusinessLogicMaxDiagnosticsPerPackage)
 	if in.Heuristics.ExcludeTestFiles != nil {
 		value := *in.Heuristics.ExcludeTestFiles
 		out.Heuristics.ExcludeTestFiles = &value
@@ -31,5 +36,13 @@ func cloneConfig(in *config.Config) *config.Config {
 		out.RuleSettings[rule] = setting
 	}
 	out.Allow = append([]config.Allow(nil), in.Allow...)
+	return &out
+}
+
+func cloneInt(in *int) *int {
+	if in == nil {
+		return nil
+	}
+	out := *in
 	return &out
 }

@@ -82,6 +82,34 @@ components:
 	}
 }
 
+func TestLoadRejectsExplicitZeroVersion(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{name: "zero", yaml: "version: 0\n"},
+		{name: "positive zero", yaml: "version: +0\n"},
+		{name: "double zero", yaml: "version: 00\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ".hexcheck.yaml")
+			data := []byte(tt.yaml + `components:
+  adapters:
+    paths: [internal/infrastructure/**]
+    role: adapter
+`)
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatal("expected explicit zero version to be rejected")
+			}
+		})
+	}
+}
+
 func TestLoadHonorsExplicitExcludeTestFilesFalse(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".hexcheck.yaml")
@@ -105,6 +133,29 @@ heuristics:
 	}
 	if !filepath.IsAbs(cfg.Root) {
 		t.Fatalf("Root = %q, want absolute path", cfg.Root)
+	}
+}
+
+func TestValidateRejectsInvalidHeuristicKnobs(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "negative threshold", mutate: func(c *Config) { c.Heuristics.BusinessLogicThreshold = intPtr(-1) }},
+		{name: "negative strong", mutate: func(c *Config) { c.Heuristics.BusinessLogicMinStrongSignals = intPtr(-1) }},
+		{name: "negative weak", mutate: func(c *Config) { c.Heuristics.BusinessLogicMinWeakSignals = intPtr(-1) }},
+		{name: "zero max nodes", mutate: func(c *Config) { c.Heuristics.BusinessLogicMaxFunctionNodes = intPtr(0) }},
+		{name: "zero max diagnostics", mutate: func(c *Config) { c.Heuristics.BusinessLogicMaxDiagnosticsPerPackage = intPtr(0) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Version: 1, Components: map[string]Component{"adapters": {Role: RoleAdapter, Paths: []string{"internal/**"}}}}
+			cfg.applyDefaults()
+			tt.mutate(cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
 	}
 }
 

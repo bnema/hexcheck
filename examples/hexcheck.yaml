@@ -53,6 +53,9 @@ ruleSettings:
   suspicious-business-logic-in-adapter:
     excludePaths:
       - internal/ui/**
+      - internal/cli/cmd/**
+      - internal/cli/model/**
+      - cmd/**
 
 externalTypes:
   frameworkPackages: []
@@ -62,6 +65,10 @@ externalTypes:
 
 heuristics:
   businessLogicThreshold: 8
+  businessLogicMinStrongSignals: 2
+  businessLogicMinWeakSignals: 2
+  businessLogicMaxFunctionNodes: 2000
+  businessLogicMaxDiagnosticsPerPackage: 10
   excludeTestFiles: true
   businessKeywords:
     - Validate
@@ -71,6 +78,17 @@ heuristics:
     - Apply
     - Transition
     - Can
+    - Detect
+    - Migrate
+    - Resolve
+    - Profile
+    - Score
+    - Ranking
+    - Restore
+    - Purge
+    - Update
+    - Performance
+    - Selected
 
 mocking:
   generatedMockPaths:

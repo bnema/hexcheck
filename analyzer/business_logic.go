@@ -1,13 +1,21 @@
 package analyzer
 
 import (
+	"fmt"
 	"go/ast"
+	"go/token"
+	"go/types"
 	"strings"
 
 	"github.com/bnema/hexcheck/config"
 )
 
-func (r runner) checkBusinessLogic(file *ast.File, filePath string, current config.Match) {
+type businessLogicSignal struct {
+	kind   string
+	strong bool
+}
+
+func (r runner) checkBusinessLogic(file *ast.File, filePath string, current config.Match, packageDiagnostics *int) {
 	if current.Role != config.RoleAdapter && current.Role != config.RoleEntrypoint {
 		return
 	}
@@ -15,36 +23,255 @@ func (r runner) checkBusinessLogic(file *ast.File, filePath string, current conf
 		return
 	}
 
-	threshold := r.cfg.Heuristics.BusinessLogicThreshold
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
 			continue
 		}
-
-		score := 0
-		for _, keyword := range r.cfg.Heuristics.BusinessKeywords {
-			if containsWord(fn.Name.Name, keyword) {
-				score += 2
-			}
+		if *packageDiagnostics >= *r.cfg.Heuristics.BusinessLogicMaxDiagnosticsPerPackage {
+			return
 		}
-
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			switch n.(type) {
-			case *ast.IfStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.ForStmt, *ast.RangeStmt:
-				score++
-			}
-			return true
-		})
-
-		if score >= threshold {
-			r.report(fn.Name.Pos(), "suspicious-business-logic-in-adapter", filePath, "adapter function %s has suspicious business-logic score %d", fn.Name.Name, score)
+		if r.isSuspiciousBusinessFunction(fn, filePath) {
+			*packageDiagnostics++
 		}
 	}
 }
 
+func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, filePath string) bool {
+	facts := businessFunctionFacts{runner: r, fn: fn}
+	ast.Inspect(fn.Body, facts.inspect)
+	if facts.nodeCount > *r.cfg.Heuristics.BusinessLogicMaxFunctionNodes {
+		return false
+	}
+	strong, weak := facts.classify()
+	if len(strong) >= *r.cfg.Heuristics.BusinessLogicMinStrongSignals || (len(strong) >= 1 && len(weak) >= *r.cfg.Heuristics.BusinessLogicMinWeakSignals) {
+		return r.report(fn.Name.Pos(), "suspicious-business-logic-in-adapter", filePath, "adapter function %s has business-logic evidence: strong=%v weak=%v", fn.Name.Name, signalKinds(strong), signalKinds(weak))
+	}
+	return false
+}
+
+type businessFunctionFacts struct {
+	runner runner
+	fn     *ast.FuncDecl
+
+	nodeCount             int
+	branchCount           int
+	keyword               bool
+	domainTypeUse         bool
+	domainMutation        bool
+	domainMethodCall      bool
+	domainConstructorCall bool
+	domainErrorReturn     bool
+	policyConstant        bool
+	usecaseCalls          map[string]bool
+}
+
+func (f *businessFunctionFacts) inspect(n ast.Node) bool {
+	if n == nil {
+		return true
+	}
+	f.nodeCount++
+	if f.nodeCount > *f.runner.cfg.Heuristics.BusinessLogicMaxFunctionNodes {
+		return false
+	}
+
+	if f.exprUsesRole(exprFromNode(n), config.RoleCore) || f.exprUsesRole(exprFromNode(n), config.RoleUsecase) {
+		f.domainTypeUse = true
+	}
+
+	switch node := n.(type) {
+	case *ast.IfStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.ForStmt, *ast.RangeStmt:
+		f.branchCount++
+	case *ast.AssignStmt:
+		for _, lhs := range node.Lhs {
+			if f.selectorReceiverUsesRole(lhs, config.RoleCore, config.RoleUsecase) {
+				f.domainMutation = true
+			}
+		}
+	case *ast.CallExpr:
+		f.inspectCall(node)
+	case *ast.BasicLit:
+		if node.Kind == token.INT || node.Kind == token.FLOAT || node.Kind == token.STRING {
+			f.policyConstant = true
+		}
+	case *ast.ReturnStmt:
+		for _, result := range node.Results {
+			if f.exprUsesRole(result, config.RoleCore) || f.exprUsesRole(result, config.RoleUsecase) {
+				f.domainErrorReturn = true
+			}
+		}
+	}
+	return true
+}
+
+func (f *businessFunctionFacts) inspectCall(call *ast.CallExpr) {
+	calleeType := f.runner.pass.TypesInfo.TypeOf(call.Fun)
+	if f.typeHasRole(calleeType, config.RoleCore) || f.typeHasRole(calleeType, config.RoleUsecase) {
+		f.domainConstructorCall = true
+	}
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if f.exprUsesRole(sel.X, config.RoleCore) {
+			f.domainMethodCall = true
+		}
+		if f.exprUsesRole(sel.X, config.RolePorts) || f.exprUsesRole(sel.X, config.RoleUsecase) {
+			if f.usecaseCalls == nil {
+				f.usecaseCalls = map[string]bool{}
+			}
+			f.usecaseCalls[collaboratorKey(f.runner.pass.TypesInfo, sel.X)] = true
+		}
+	}
+	for _, arg := range call.Args {
+		if f.exprUsesRole(arg, config.RoleCore) || f.exprUsesRole(arg, config.RoleUsecase) {
+			f.domainTypeUse = true
+		}
+	}
+}
+
+func collaboratorKey(info *types.Info, expr ast.Expr) string {
+	if ident, ok := expr.(*ast.Ident); ok {
+		if obj := info.ObjectOf(ident); obj != nil {
+			return obj.Pkg().Path() + "." + obj.Name()
+		}
+	}
+	return fmt.Sprintf("%p", expr)
+}
+
+func (f *businessFunctionFacts) classify() ([]businessLogicSignal, []businessLogicSignal) {
+	strong := []businessLogicSignal{}
+	weak := []businessLogicSignal{}
+	if len(f.fn.Type.Params.List) > 0 {
+		for _, field := range f.fn.Type.Params.List {
+			if f.typeHasAnyRole(f.runner.pass.TypesInfo.TypeOf(field.Type), config.RoleCore, config.RoleUsecase) {
+				f.domainTypeUse = true
+			}
+		}
+	}
+	for _, keyword := range f.runner.cfg.Heuristics.BusinessKeywords {
+		if containsWord(f.fn.Name.Name, keyword) {
+			f.keyword = true
+			break
+		}
+	}
+
+	if f.domainMutation {
+		strong = append(strong, businessLogicSignal{kind: "domain mutation", strong: true})
+	}
+	if f.domainMethodCall {
+		strong = append(strong, businessLogicSignal{kind: "domain method call", strong: true})
+	}
+	if f.keyword && len(f.usecaseCalls) >= 2 {
+		strong = append(strong, businessLogicSignal{kind: "business keyword with multiple port/usecase collaborators", strong: true})
+	}
+	if f.keyword && f.branchCount >= 3 && f.policyConstant && policyKeyword(f.fn.Name.Name) {
+		strong = append(strong, businessLogicSignal{kind: "business keyword with policy constants and branching", strong: true})
+	}
+	if f.keyword && (f.domainTypeUse || f.domainMethodCall || f.domainMutation || f.domainConstructorCall) {
+		strong = append(strong, businessLogicSignal{kind: "business keyword with domain context", strong: true})
+	}
+
+	if f.keyword {
+		weak = append(weak, businessLogicSignal{kind: "business keyword", strong: false})
+	}
+	if f.policyConstant {
+		weak = append(weak, businessLogicSignal{kind: "policy constants", strong: false})
+	}
+	if f.domainErrorReturn {
+		weak = append(weak, businessLogicSignal{kind: "domain result return", strong: false})
+	}
+	if len(f.usecaseCalls) >= 2 {
+		weak = append(weak, businessLogicSignal{kind: "multiple port/usecase collaborators", strong: false})
+	}
+	if f.branchCount >= *f.runner.cfg.Heuristics.BusinessLogicThreshold {
+		weak = append(weak, businessLogicSignal{kind: fmt.Sprintf("branch count %d", f.branchCount), strong: false})
+	}
+	return strong, weak
+}
+
+func policyKeyword(name string) bool {
+	for _, word := range []string{"Detect", "Migrate", "Resolve", "Profile", "Score", "Ranking", "Restore", "Purge", "Performance", "Selected"} {
+		if containsWord(name, word) {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *businessFunctionFacts) exprUsesRole(expr ast.Expr, roles ...config.Role) bool {
+	if expr == nil {
+		return false
+	}
+	return f.typeHasAnyRole(f.runner.pass.TypesInfo.TypeOf(expr), roles...)
+}
+
+func (f *businessFunctionFacts) selectorReceiverUsesRole(expr ast.Expr, roles ...config.Role) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	return f.exprUsesRole(sel.X, roles...)
+}
+
+func (f *businessFunctionFacts) typeHasAnyRole(t types.Type, roles ...config.Role) bool {
+	for _, role := range roles {
+		if f.typeHasRole(t, role) {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *businessFunctionFacts) typeHasRole(t types.Type, role config.Role) bool {
+	if t == nil {
+		return false
+	}
+	switch tt := t.(type) {
+	case *types.Pointer:
+		return f.typeHasRole(tt.Elem(), role)
+	case *types.Slice:
+		return f.typeHasRole(tt.Elem(), role)
+	case *types.Array:
+		return f.typeHasRole(tt.Elem(), role)
+	case *types.Map:
+		return f.typeHasRole(tt.Key(), role) || f.typeHasRole(tt.Elem(), role)
+	case *types.Signature:
+		return f.typeHasRole(tt.Results(), role)
+	case *types.Tuple:
+		for i := 0; i < tt.Len(); i++ {
+			if f.typeHasRole(tt.At(i).Type(), role) {
+				return true
+			}
+		}
+		return false
+	case *types.Named:
+		obj := tt.Obj()
+		if obj == nil || obj.Pkg() == nil {
+			return false
+		}
+		match, ok := f.runner.cfg.ComponentForPath(f.runner.relImportPath(obj.Pkg().Path()))
+		if ok && match.Role == role {
+			return true
+		}
+		return f.typeHasRole(tt.Underlying(), role)
+	default:
+		return false
+	}
+}
+
+func exprFromNode(n ast.Node) ast.Expr {
+	expr, _ := n.(ast.Expr)
+	return expr
+}
+
+func signalKinds(signals []businessLogicSignal) []string {
+	out := make([]string, 0, len(signals))
+	for _, signal := range signals {
+		out = append(out, signal.kind)
+	}
+	return out
+}
+
 func containsWord(name, word string) bool {
-	if word == "" {
+	if word == "" || len(word) > len(name) {
 		return false
 	}
 	for i := 0; i <= len(name)-len(word); i++ {

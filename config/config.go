@@ -53,9 +53,13 @@ type ExternalTypes struct {
 }
 
 type Heuristics struct {
-	BusinessLogicThreshold int      `yaml:"businessLogicThreshold"`
-	BusinessKeywords       []string `yaml:"businessKeywords"`
-	ExcludeTestFiles       *bool    `yaml:"excludeTestFiles"`
+	BusinessLogicThreshold                *int     `yaml:"businessLogicThreshold"`
+	BusinessLogicMinStrongSignals         *int     `yaml:"businessLogicMinStrongSignals"`
+	BusinessLogicMinWeakSignals           *int     `yaml:"businessLogicMinWeakSignals"`
+	BusinessLogicMaxFunctionNodes         *int     `yaml:"businessLogicMaxFunctionNodes"`
+	BusinessLogicMaxDiagnosticsPerPackage *int     `yaml:"businessLogicMaxDiagnosticsPerPackage"`
+	BusinessKeywords                      []string `yaml:"businessKeywords"`
+	ExcludeTestFiles                      *bool    `yaml:"excludeTestFiles"`
 }
 
 type Mocking struct {
@@ -87,6 +91,9 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	if hasExplicitVersion(data) && cfg.Version == 0 {
+		return nil, errors.New("version: unsupported value 0")
+	}
 	root, err := filepath.Abs(filepath.Dir(path))
 	if err != nil {
 		return nil, err
@@ -105,6 +112,10 @@ func Default() *Config {
 	return cfg
 }
 
+func (c *Config) ApplyDefaults() {
+	c.applyDefaults()
+}
+
 func (c *Config) applyDefaults() {
 	if c.Version == 0 {
 		c.Version = 1
@@ -117,19 +128,50 @@ func (c *Config) applyDefaults() {
 			c.Rules[rule] = sev
 		}
 	}
-	if c.Heuristics.BusinessLogicThreshold == 0 {
-		c.Heuristics.BusinessLogicThreshold = 8
+	if c.Heuristics.BusinessLogicThreshold == nil {
+		c.Heuristics.BusinessLogicThreshold = intPtr(8)
+	}
+	if c.Heuristics.BusinessLogicMinStrongSignals == nil {
+		c.Heuristics.BusinessLogicMinStrongSignals = intPtr(2)
+	}
+	if c.Heuristics.BusinessLogicMinWeakSignals == nil {
+		c.Heuristics.BusinessLogicMinWeakSignals = intPtr(2)
+	}
+	if c.Heuristics.BusinessLogicMaxFunctionNodes == nil {
+		c.Heuristics.BusinessLogicMaxFunctionNodes = intPtr(2000)
+	}
+	if c.Heuristics.BusinessLogicMaxDiagnosticsPerPackage == nil {
+		c.Heuristics.BusinessLogicMaxDiagnosticsPerPackage = intPtr(10)
 	}
 	if c.Heuristics.ExcludeTestFiles == nil {
 		defaultExcludeTestFiles := true
 		c.Heuristics.ExcludeTestFiles = &defaultExcludeTestFiles
 	}
 	if len(c.Heuristics.BusinessKeywords) == 0 {
-		c.Heuristics.BusinessKeywords = []string{"Validate", "Authorize", "Compute", "Calculate", "Apply", "Transition", "Can"}
+		c.Heuristics.BusinessKeywords = []string{"Validate", "Authorize", "Compute", "Calculate", "Apply", "Transition", "Can", "Detect", "Migrate", "Resolve", "Profile", "Score", "Ranking", "Restore", "Purge", "Update", "Performance", "Selected"}
 	}
 	if len(c.Mocking.GeneratedMockNamePatterns) == 0 {
 		c.Mocking.GeneratedMockNamePatterns = []string{"Mock{{Interface}}", "{{Interface}}Mock"}
 	}
+}
+
+func intPtr(v int) *int { return &v }
+
+func hasExplicitVersion(data []byte) bool {
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil || len(node.Content) == 0 {
+		return false
+	}
+	mapping := node.Content[0]
+	if mapping.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == "version" {
+			return true
+		}
+	}
+	return false
 }
 
 func DefaultRuleSeverities() map[string]Severity {
@@ -162,6 +204,21 @@ func (c *Config) Validate() error {
 		if len(component.Paths) == 0 {
 			return fmt.Errorf("components.%s.paths: must not be empty", name)
 		}
+	}
+	if c.Heuristics.BusinessLogicThreshold != nil && *c.Heuristics.BusinessLogicThreshold < 0 {
+		return errors.New("heuristics.businessLogicThreshold: must be >= 0")
+	}
+	if c.Heuristics.BusinessLogicMinStrongSignals != nil && *c.Heuristics.BusinessLogicMinStrongSignals < 0 {
+		return errors.New("heuristics.businessLogicMinStrongSignals: must be >= 0")
+	}
+	if c.Heuristics.BusinessLogicMinWeakSignals != nil && *c.Heuristics.BusinessLogicMinWeakSignals < 0 {
+		return errors.New("heuristics.businessLogicMinWeakSignals: must be >= 0")
+	}
+	if c.Heuristics.BusinessLogicMaxFunctionNodes != nil && *c.Heuristics.BusinessLogicMaxFunctionNodes < 1 {
+		return errors.New("heuristics.businessLogicMaxFunctionNodes: must be >= 1")
+	}
+	if c.Heuristics.BusinessLogicMaxDiagnosticsPerPackage != nil && *c.Heuristics.BusinessLogicMaxDiagnosticsPerPackage < 1 {
+		return errors.New("heuristics.businessLogicMaxDiagnosticsPerPackage: must be >= 1")
 	}
 	for rule, severity := range c.Rules {
 		switch severity {
