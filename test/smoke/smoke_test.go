@@ -8,16 +8,33 @@ import (
 )
 
 func TestLocalRepositorySmoke(t *testing.T) {
-	repo := os.Getenv("HEXCHECK_SMOKE_REPO")
-	if repo == "" {
-		t.Skip("HEXCHECK_SMOKE_REPO is not set")
+	tests := []struct {
+		name string
+		repo string
+	}{
+		{name: "configured local repository", repo: os.Getenv("HEXCHECK_SMOKE_REPO")},
 	}
-	root := projectRoot(t)
-	cmd := exec.Command("go", "run", "./cmd/hexcheck", "-hexcheck.config", filepath.Join(root, "examples", "hexcheck.yaml"), "-hexcheck.root", repo, "./...")
-	cmd.Dir = repo
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("hexcheck smoke command failed: %v\n%s", err, output)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.repo == "" {
+				t.Skip("HEXCHECK_SMOKE_REPO is not set")
+			}
+			root := projectRoot(t)
+			bin := filepath.Join(t.TempDir(), "hexcheck")
+			build := exec.Command("go", "build", "-o", bin, "./cmd/hexcheck")
+			build.Dir = root
+			if output, err := build.CombinedOutput(); err != nil {
+				t.Fatalf("build hexcheck: %v\n%s", err, output)
+			}
+
+			cmd := exec.Command(bin, "-hexcheck.config", filepath.Join(root, "examples", "hexcheck.yaml"), "-hexcheck.root", tt.repo, "./...")
+			cmd.Dir = tt.repo
+			output, err := cmd.CombinedOutput()
+			if err != nil && len(output) == 0 {
+				t.Fatalf("hexcheck smoke command failed without output: %v", err)
+			}
+		})
 	}
 }
 
