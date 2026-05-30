@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,23 +17,101 @@ const Name = "hexcheck"
 
 type Options struct {
 	Config     *config.Config
+	ConfigPath string
+	Root       string
 	ModulePath string
 }
 
 func New(opts Options) *analysis.Analyzer {
-	cfg := opts.Config
-	if cfg == nil {
-		cfg = config.Default()
-	}
-	return &analysis.Analyzer{
+	var configPathFlag string
+	var rootFlag string
+	var modulePathFlag string
+
+	a := &analysis.Analyzer{
 		Name: Name,
 		Doc:  "checks hexagonal architecture boundaries",
 		Run: func(pass *analysis.Pass) (any, error) {
-			r := runner{pass: pass, cfg: cfg, modulePath: opts.ModulePath}
+			cfg, root, err := resolveConfig(opts, configPathFlag, rootFlag)
+			if err != nil {
+				return nil, err
+			}
+			modulePath := firstNonEmpty(opts.ModulePath, modulePathFlag)
+			if modulePath == "" {
+				modulePath = discoverModulePath(root)
+			}
+			r := runner{pass: pass, cfg: cfg, modulePath: modulePath}
 			r.run()
 			return nil, nil
 		},
 	}
+	if opts.Config == nil {
+		a.Flags.StringVar(&configPathFlag, "config", opts.ConfigPath, "path to .hexcheck.yaml")
+		a.Flags.StringVar(&rootFlag, "root", opts.Root, "project root for config-relative paths")
+		a.Flags.StringVar(&modulePathFlag, "module", opts.ModulePath, "Go module path; defaults to module in go.mod")
+	}
+	return a
+}
+
+func resolveConfig(opts Options, configPathFlag, rootFlag string) (*config.Config, string, error) {
+	if opts.Config != nil {
+		return opts.Config, opts.Config.Root, nil
+	}
+	root := firstNonEmpty(opts.Root, rootFlag)
+	configPath := firstNonEmpty(opts.ConfigPath, configPathFlag)
+	if configPath == "" {
+		start := root
+		if start == "" {
+			start = "."
+		}
+		discovered, err := config.DiscoverConfig(start)
+		if err == nil {
+			configPath = discovered
+		}
+	}
+	if configPath == "" {
+		cfg := config.Default()
+		if root != "" {
+			cfg.Root = root
+		}
+		return cfg, cfg.Root, nil
+	}
+	if root != "" && !filepath.IsAbs(configPath) {
+		configPath = filepath.Join(root, configPath)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return nil, "", err
+	}
+	if root != "" {
+		cfg.Root = root
+	}
+	return cfg, cfg.Root, nil
+}
+
+func discoverModulePath(root string) string {
+	if root == "" {
+		root = "."
+	}
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		}
+	}
+	return ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type runner struct {
