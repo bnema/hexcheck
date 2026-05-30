@@ -40,14 +40,14 @@ func (r runner) checkBusinessLogic(file *ast.File, filePath string, current conf
 		if *packageDiagnostics >= *r.cfg.Heuristics.BusinessLogicMaxDiagnosticsPerPackage {
 			return
 		}
-		if r.isSuspiciousBusinessFunction(fn, file, filePath) {
+		if r.isSuspiciousBusinessFunction(fn, file, filePath, current.Role) {
 			*packageDiagnostics++
 		}
 	}
 }
 
-func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, file *ast.File, filePath string) bool {
-	facts := r.collectBusinessFunctionFacts(fn, file)
+func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, file *ast.File, filePath string, fileRole config.Role) bool {
+	facts := r.collectBusinessFunctionFacts(fn, fileRole, file)
 	if facts.nodeCount > *r.cfg.Heuristics.BusinessLogicMaxFunctionNodes {
 		return false
 	}
@@ -62,8 +62,11 @@ func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, file *ast.File, f
 	return false
 }
 
-func (r runner) collectBusinessFunctionFacts(fn *ast.FuncDecl, file ...*ast.File) businessFunctionFacts {
-	facts := businessFunctionFacts{runner: r, fn: fn, imports: map[string]bool{}}
+func (r runner) collectBusinessFunctionFacts(fn *ast.FuncDecl, fileRole config.Role, file ...*ast.File) businessFunctionFacts {
+	if fileRole == "" {
+		fileRole = config.RoleAdapter
+	}
+	facts := businessFunctionFacts{runner: r, fn: fn, fileRole: fileRole, imports: map[string]bool{}}
 	if len(file) > 0 && file[0] != nil {
 		for _, imp := range file[0].Imports {
 			facts.imports[strings.Trim(imp.Path.Value, "\"")] = true
@@ -74,8 +77,9 @@ func (r runner) collectBusinessFunctionFacts(fn *ast.FuncDecl, file ...*ast.File
 }
 
 type businessFunctionFacts struct {
-	runner runner
-	fn     *ast.FuncDecl
+	runner   runner
+	fn       *ast.FuncDecl
+	fileRole config.Role
 
 	nodeCount             int
 	branchCount           int
@@ -159,21 +163,24 @@ func (f *businessFunctionFacts) inspectTechnicalCall(call *ast.CallExpr) {
 		return
 	}
 	ident, ok := sel.X.(*ast.Ident)
-	if !ok {
+	if !ok || f.runner.pass == nil || f.runner.pass.TypesInfo == nil {
 		return
 	}
-	if _, ok := map[string]bool{"os": true, "filepath": true, "strconv": true, "bufio": true}[ident.Name]; ok && f.imports[technicalImportPath(ident.Name)] {
+	pkgName, ok := f.runner.pass.TypesInfo.ObjectOf(ident).(*types.PkgName)
+	if !ok || pkgName.Imported() == nil {
+		return
+	}
+	path := pkgName.Imported().Path()
+	if technicalImportPaths[path] && f.imports[path] {
 		f.usesTechnicalPackage = true
 	}
 }
 
-func technicalImportPath(name string) string {
-	switch name {
-	case "filepath":
-		return "path/filepath"
-	default:
-		return name
-	}
+var technicalImportPaths = map[string]bool{
+	"os":            true,
+	"path/filepath": true,
+	"strconv":       true,
+	"bufio":         true,
 }
 
 func collaboratorKey(info *types.Info, expr ast.Expr) string {
@@ -231,12 +238,7 @@ func (f *businessFunctionFacts) isTechnicalDetectionOnly() bool {
 }
 
 func (f *businessFunctionFacts) componentRole() config.Role {
-	pkgRel := f.runner.relImportPath(f.runner.pass.Pkg.Path())
-	current, ok := f.runner.cfg.ComponentForPath(pkgRel)
-	if !ok {
-		return config.RoleAdapter
-	}
-	return current.Role
+	return f.fileRole
 }
 
 func (f *businessFunctionFacts) classify() ([]businessLogicSignal, []businessLogicSignal) {

@@ -25,7 +25,7 @@ func TestCollectBusinessFunctionFactsInspectsFunctionBody(t *testing.T) {
 		pass: &analysis.Pass{TypesInfo: &types.Info{Types: map[ast.Expr]types.TypeAndValue{}}},
 	}
 
-	facts := r.collectBusinessFunctionFacts(fn)
+	facts := r.collectBusinessFunctionFacts(fn, config.RoleAdapter)
 
 	if facts.fn != fn {
 		t.Fatalf("collectBusinessFunctionFacts() fn = %p, want %p", facts.fn, fn)
