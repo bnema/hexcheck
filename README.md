@@ -81,6 +81,8 @@ heuristics:
   businessLogicMinWeakSignals: 2
   businessLogicMaxFunctionNodes: 2000
   businessLogicMaxDiagnosticsPerPackage: 10
+  businessLogicMode: audit # audit|ci
+  businessLogicMinConfidence: medium # low|medium|high
   excludeTestFiles: true
 
 mocking:
@@ -94,6 +96,8 @@ mocking:
 ```
 
 A fuller example lives in [`examples/hexcheck.yaml`](examples/hexcheck.yaml).
+
+Business-logic diagnostics include a confidence level. `audit` mode reports findings at or above `businessLogicMinConfidence`; `ci` mode reports only high-confidence findings.
 
 ## Standalone CLI
 

@@ -45,6 +45,16 @@ rules:
   prefer-generated-mocks: warn
 ```
 
+Business-logic mode:
+
+```yaml
+heuristics:
+  businessLogicMode: audit # audit|ci
+  businessLogicMinConfidence: medium # low|medium|high
+```
+
+Use `audit` for refactor discovery. Use `ci` when heuristic findings must stay high-confidence. Prefer tuning confidence before adding broad `excludePaths`.
+
 Mock config:
 
 ```yaml

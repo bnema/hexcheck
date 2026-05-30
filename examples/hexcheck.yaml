@@ -69,6 +69,8 @@ heuristics:
   businessLogicMinWeakSignals: 2
   businessLogicMaxFunctionNodes: 2000
   businessLogicMaxDiagnosticsPerPackage: 10
+  businessLogicMode: audit
+  businessLogicMinConfidence: medium
   excludeTestFiles: true
   businessKeywords:
     - Validate
