@@ -5,14 +5,20 @@ components:
     paths:
       - internal/domain/**
       - internal/core/**
-  usecase:
+  usecases:
     role: usecase
     paths:
       - internal/application/usecase/**
+      - internal/application/usecases/**
+      - internal/usecase/**
+      - internal/usecases/**
+      - usecase/**
+      - usecases/**
   ports:
     role: ports
     paths:
       - internal/application/port/**
+      - internal/domain/repository/**
   adapters:
     role: adapter
     paths:
@@ -29,6 +35,8 @@ components:
     paths:
       - '**/mocks/**'
       - '**/generated/**'
+      - '**/*_templ.go'
+      - '**/*_gen.go'
 
 rules:
   no-adapter-imports-in-core: error
@@ -38,7 +46,13 @@ rules:
   no-adapter-to-adapter-imports: warn
   suspicious-business-logic-in-adapter: warn
   no-local-fakes-for-ports: warn
+  missing-generated-mock-for-port: warn
   prefer-generated-mocks: warn
+
+ruleSettings:
+  suspicious-business-logic-in-adapter:
+    excludePaths:
+      - internal/ui/**
 
 externalTypes:
   frameworkPackages: []
@@ -47,7 +61,8 @@ externalTypes:
     - internal/adapters/**
 
 heuristics:
-  businessLogicThreshold: 4
+  businessLogicThreshold: 8
+  excludeTestFiles: true
   businessKeywords:
     - Validate
     - Authorize
@@ -61,6 +76,8 @@ mocking:
   generatedMockPaths:
     - internal/mocks/**
     - internal/application/mocks/**
+    - internal/application/port/mocks/**
+    - internal/domain/repository/mocks/**
   generatedMockNamePatterns:
     - Mock{{Interface}}
     - '{{Interface}}Mock'

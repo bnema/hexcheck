@@ -82,6 +82,32 @@ components:
 	}
 }
 
+func TestLoadHonorsExplicitExcludeTestFilesFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".hexcheck.yaml")
+	data := []byte(`version: 1
+components:
+  adapters:
+    paths: [internal/infrastructure/**]
+    role: adapter
+heuristics:
+  excludeTestFiles: false
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Heuristics.ExcludeTestFiles == nil || *cfg.Heuristics.ExcludeTestFiles {
+		t.Fatal("excludeTestFiles=false was not preserved")
+	}
+	if !filepath.IsAbs(cfg.Root) {
+		t.Fatalf("Root = %q, want absolute path", cfg.Root)
+	}
+}
+
 func TestComponentForPathPrecedence(t *testing.T) {
 	cfg := &Config{Components: map[string]Component{
 		"all":     {Role: RoleCore, Paths: []string{"internal/**"}},

@@ -31,9 +31,13 @@ func TestLocalRepositorySmoke(t *testing.T) {
 			cmd := exec.Command(bin, "-hexcheck.config", filepath.Join(root, "examples", "hexcheck.yaml"), "-hexcheck.root", tt.repo, "./...")
 			cmd.Dir = tt.repo
 			output, err := cmd.CombinedOutput()
-			if err != nil && len(output) == 0 {
-				t.Fatalf("hexcheck smoke command failed without output: %v", err)
+			if err == nil {
+				return
 			}
+			if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 3 && len(output) > 0 {
+				return
+			}
+			t.Fatalf("hexcheck smoke command failed: %v\n%s", err, output)
 		})
 	}
 }

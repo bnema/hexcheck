@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/bnema/hexcheck/config"
@@ -37,6 +38,7 @@ func TestAnalyzer(t *testing.T) {
 
 func testConfig() *config.Config {
 	cfg := &config.Config{
+		Root:    filepath.Join(analysistest.TestData(), "src/example.com/project"),
 		Version: 1,
 		Components: map[string]config.Component{
 			"domain":  {Role: config.RoleCore, Paths: []string{"internal/domain/**"}},
@@ -48,6 +50,9 @@ func testConfig() *config.Config {
 		Rules: config.DefaultRuleSeverities(),
 		ExternalTypes: config.ExternalTypes{
 			FrameworkPackages: []string{"example.com/framework"},
+		},
+		Mocking: config.Mocking{
+			GeneratedMockPaths: []string{"internal/application/port/mocks/**"},
 		},
 		Allow: []config.Allow{
 			{Rule: "no-infra-imports-in-usecase", Path: "internal/application/usecase/*_test.go", Reason: "test architecture rule has a more specific diagnostic"},

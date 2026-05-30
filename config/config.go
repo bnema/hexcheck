@@ -31,14 +31,15 @@ const (
 )
 
 type Config struct {
-	Version       int                  `yaml:"version"`
-	Components    map[string]Component `yaml:"components"`
-	Rules         map[string]Severity  `yaml:"rules"`
-	ExternalTypes ExternalTypes        `yaml:"externalTypes"`
-	Heuristics    Heuristics           `yaml:"heuristics"`
-	Mocking       Mocking              `yaml:"mocking"`
-	Allow         []Allow              `yaml:"allow"`
-	Root          string               `yaml:"-"`
+	Version       int                    `yaml:"version"`
+	Components    map[string]Component   `yaml:"components"`
+	Rules         map[string]Severity    `yaml:"rules"`
+	ExternalTypes ExternalTypes          `yaml:"externalTypes"`
+	Heuristics    Heuristics             `yaml:"heuristics"`
+	Mocking       Mocking                `yaml:"mocking"`
+	RuleSettings  map[string]RuleSetting `yaml:"ruleSettings"`
+	Allow         []Allow                `yaml:"allow"`
+	Root          string                 `yaml:"-"`
 }
 
 type Component struct {
@@ -54,11 +55,16 @@ type ExternalTypes struct {
 type Heuristics struct {
 	BusinessLogicThreshold int      `yaml:"businessLogicThreshold"`
 	BusinessKeywords       []string `yaml:"businessKeywords"`
+	ExcludeTestFiles       *bool    `yaml:"excludeTestFiles"`
 }
 
 type Mocking struct {
 	GeneratedMockPaths        []string `yaml:"generatedMockPaths"`
 	GeneratedMockNamePatterns []string `yaml:"generatedMockNamePatterns"`
+}
+
+type RuleSetting struct {
+	ExcludePaths []string `yaml:"excludePaths"`
 }
 
 type Allow struct {
@@ -81,7 +87,11 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	cfg.Root = filepath.Dir(path)
+	root, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	cfg.Root = root
 	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -108,7 +118,11 @@ func (c *Config) applyDefaults() {
 		}
 	}
 	if c.Heuristics.BusinessLogicThreshold == 0 {
-		c.Heuristics.BusinessLogicThreshold = 4
+		c.Heuristics.BusinessLogicThreshold = 8
+	}
+	if c.Heuristics.ExcludeTestFiles == nil {
+		defaultExcludeTestFiles := true
+		c.Heuristics.ExcludeTestFiles = &defaultExcludeTestFiles
 	}
 	if len(c.Heuristics.BusinessKeywords) == 0 {
 		c.Heuristics.BusinessKeywords = []string{"Validate", "Authorize", "Compute", "Calculate", "Apply", "Transition", "Can"}
@@ -127,6 +141,7 @@ func DefaultRuleSeverities() map[string]Severity {
 		"no-adapter-to-adapter-imports":        SeverityWarn,
 		"suspicious-business-logic-in-adapter": SeverityWarn,
 		"no-local-fakes-for-ports":             SeverityWarn,
+		"missing-generated-mock-for-port":      SeverityWarn,
 		"prefer-generated-mocks":               SeverityWarn,
 	}
 }
