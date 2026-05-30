@@ -1,4 +1,4 @@
-.PHONY: test lint tidy check smoke-dumber
+.PHONY: test lint tidy check smoke-local
 
 test:
 	go test ./...
@@ -11,5 +11,9 @@ tidy:
 
 check: tidy test
 
-smoke-dumber:
-	HEXCHECK_DUMBER_PATH=/home/brice/dev/projects/dumber go test ./test/smoke
+smoke-local:
+	@if [ -z "$(HEXCHECK_SMOKE_REPO)" ]; then \
+		echo "HEXCHECK_SMOKE_REPO must point to a local Go repository for smoke testing"; \
+		exit 1; \
+	fi
+	go test ./test/smoke

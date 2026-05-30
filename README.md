@@ -10,7 +10,7 @@ It is built on `golang.org/x/tools/go/analysis`, runs as a standalone CLI, and c
 - catch deterministic boundary violations in CI
 - warn about suspicious business logic in adapters and entrypoints
 - warn when tests bypass generated interface mocks with local fakes or real adapters
-- smoke test the analyzer against real Go repositories such as Dumber
+- smoke test the analyzer against real Go repositories through opt-in local paths
 
 ## Quick example
 
@@ -94,5 +94,5 @@ linters:
 ```bash
 make test
 make check
-HEXCHECK_DUMBER_PATH=/home/brice/dev/projects/dumber make smoke-dumber
+HEXCHECK_SMOKE_REPO=/path/to/local/go/repo make smoke-local
 ```
