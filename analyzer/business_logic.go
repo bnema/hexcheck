@@ -38,8 +38,7 @@ func (r runner) checkBusinessLogic(file *ast.File, filePath string, current conf
 }
 
 func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, filePath string) bool {
-	facts := businessFunctionFacts{runner: r, fn: fn}
-	ast.Inspect(fn.Body, facts.inspect)
+	facts := r.collectBusinessFunctionFacts(fn)
 	if facts.nodeCount > *r.cfg.Heuristics.BusinessLogicMaxFunctionNodes {
 		return false
 	}
@@ -48,6 +47,12 @@ func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, filePath string) 
 		return r.report(fn.Name.Pos(), "suspicious-business-logic-in-adapter", filePath, "%s function %s has business-logic evidence: strong=%v weak=%v", facts.componentRole(), fn.Name.Name, signalKinds(strong), signalKinds(weak))
 	}
 	return false
+}
+
+func (r runner) collectBusinessFunctionFacts(fn *ast.FuncDecl) businessFunctionFacts {
+	facts := businessFunctionFacts{runner: r, fn: fn}
+	ast.Inspect(fn.Body, facts.inspect)
+	return facts
 }
 
 type businessFunctionFacts struct {
