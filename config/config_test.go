@@ -146,6 +146,8 @@ func TestValidateRejectsInvalidHeuristicKnobs(t *testing.T) {
 		{name: "negative weak", mutate: func(c *Config) { c.Heuristics.BusinessLogicMinWeakSignals = intPtr(-1) }},
 		{name: "zero max nodes", mutate: func(c *Config) { c.Heuristics.BusinessLogicMaxFunctionNodes = intPtr(0) }},
 		{name: "zero max diagnostics", mutate: func(c *Config) { c.Heuristics.BusinessLogicMaxDiagnosticsPerPackage = intPtr(0) }},
+		{name: "invalid business logic mode", mutate: func(c *Config) { c.Heuristics.BusinessLogicMode = "loud" }},
+		{name: "invalid business logic min confidence", mutate: func(c *Config) { c.Heuristics.BusinessLogicMinConfidence = "sure" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

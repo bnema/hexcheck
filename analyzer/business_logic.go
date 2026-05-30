@@ -10,6 +10,15 @@ import (
 	"github.com/bnema/hexcheck/config"
 )
 
+type businessLogicConfidence string
+
+const (
+	businessLogicConfidenceNone   businessLogicConfidence = "none"
+	businessLogicConfidenceLow    businessLogicConfidence = "low"
+	businessLogicConfidenceMedium businessLogicConfidence = "medium"
+	businessLogicConfidenceHigh   businessLogicConfidence = "high"
+)
+
 type businessLogicSignal struct {
 	kind   string
 	strong bool
@@ -31,28 +40,46 @@ func (r runner) checkBusinessLogic(file *ast.File, filePath string, current conf
 		if *packageDiagnostics >= *r.cfg.Heuristics.BusinessLogicMaxDiagnosticsPerPackage {
 			return
 		}
-		if r.isSuspiciousBusinessFunction(fn, filePath) {
+		if r.isSuspiciousBusinessFunction(fn, file, filePath, current.Role) {
 			*packageDiagnostics++
 		}
 	}
 }
 
-func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, filePath string) bool {
-	facts := businessFunctionFacts{runner: r, fn: fn}
-	ast.Inspect(fn.Body, facts.inspect)
+func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, file *ast.File, filePath string, fileRole config.Role) bool {
+	facts := r.collectBusinessFunctionFacts(fn, fileRole, file)
 	if facts.nodeCount > *r.cfg.Heuristics.BusinessLogicMaxFunctionNodes {
 		return false
 	}
 	strong, weak := facts.classify()
-	if len(strong) >= *r.cfg.Heuristics.BusinessLogicMinStrongSignals || (len(strong) >= 1 && len(weak) >= *r.cfg.Heuristics.BusinessLogicMinWeakSignals) {
-		return r.report(fn.Name.Pos(), "suspicious-business-logic-in-adapter", filePath, "adapter function %s has business-logic evidence: strong=%v weak=%v", fn.Name.Name, signalKinds(strong), signalKinds(weak))
+	if facts.isTechnicalDetectionOnly() {
+		return false
+	}
+	confidence := facts.businessLogicConfidence(strong, weak)
+	if confidenceMeets(confidence, effectiveBusinessLogicMinConfidence(r.cfg)) {
+		return r.report(fn.Name.Pos(), "suspicious-business-logic-in-adapter", filePath, "%s function %s has business-logic evidence: confidence=%s strong=%v weak=%v", facts.componentRole(), fn.Name.Name, confidence, signalKinds(strong), signalKinds(weak))
 	}
 	return false
 }
 
+func (r runner) collectBusinessFunctionFacts(fn *ast.FuncDecl, fileRole config.Role, file ...*ast.File) businessFunctionFacts {
+	if fileRole == "" {
+		fileRole = config.RoleAdapter
+	}
+	facts := businessFunctionFacts{runner: r, fn: fn, fileRole: fileRole, imports: map[string]bool{}}
+	if len(file) > 0 && file[0] != nil {
+		for _, imp := range file[0].Imports {
+			facts.imports[strings.Trim(imp.Path.Value, "\"")] = true
+		}
+	}
+	ast.Inspect(fn.Body, facts.inspect)
+	return facts
+}
+
 type businessFunctionFacts struct {
-	runner runner
-	fn     *ast.FuncDecl
+	runner   runner
+	fn       *ast.FuncDecl
+	fileRole config.Role
 
 	nodeCount             int
 	branchCount           int
@@ -64,6 +91,8 @@ type businessFunctionFacts struct {
 	domainErrorReturn     bool
 	policyConstant        bool
 	usecaseCalls          map[string]bool
+	imports               map[string]bool
+	usesTechnicalPackage  bool
 }
 
 func (f *businessFunctionFacts) inspect(n ast.Node) bool {
@@ -105,6 +134,7 @@ func (f *businessFunctionFacts) inspect(n ast.Node) bool {
 }
 
 func (f *businessFunctionFacts) inspectCall(call *ast.CallExpr) {
+	f.inspectTechnicalCall(call)
 	calleeType := f.runner.pass.TypesInfo.TypeOf(call.Fun)
 	if f.typeHasRole(calleeType, config.RoleCore) || f.typeHasRole(calleeType, config.RoleUsecase) {
 		f.domainConstructorCall = true
@@ -127,6 +157,32 @@ func (f *businessFunctionFacts) inspectCall(call *ast.CallExpr) {
 	}
 }
 
+func (f *businessFunctionFacts) inspectTechnicalCall(call *ast.CallExpr) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok || f.runner.pass == nil || f.runner.pass.TypesInfo == nil {
+		return
+	}
+	pkgName, ok := f.runner.pass.TypesInfo.ObjectOf(ident).(*types.PkgName)
+	if !ok || pkgName.Imported() == nil {
+		return
+	}
+	path := pkgName.Imported().Path()
+	if technicalImportPaths[path] && f.imports[path] {
+		f.usesTechnicalPackage = true
+	}
+}
+
+var technicalImportPaths = map[string]bool{
+	"os":            true,
+	"path/filepath": true,
+	"strconv":       true,
+	"bufio":         true,
+}
+
 func collaboratorKey(info *types.Info, expr ast.Expr) string {
 	if ident, ok := expr.(*ast.Ident); ok {
 		if obj := info.ObjectOf(ident); obj != nil {
@@ -134,6 +190,55 @@ func collaboratorKey(info *types.Info, expr ast.Expr) string {
 		}
 	}
 	return fmt.Sprintf("%p", expr)
+}
+
+func (f *businessFunctionFacts) businessLogicConfidence(strong, weak []businessLogicSignal) businessLogicConfidence {
+	if len(strong) >= *f.runner.cfg.Heuristics.BusinessLogicMinStrongSignals {
+		return businessLogicConfidenceHigh
+	}
+	if len(strong) >= 1 && len(weak) >= *f.runner.cfg.Heuristics.BusinessLogicMinWeakSignals {
+		return businessLogicConfidenceMedium
+	}
+	if len(strong) >= 1 || len(weak) >= *f.runner.cfg.Heuristics.BusinessLogicMinWeakSignals {
+		return businessLogicConfidenceLow
+	}
+	return businessLogicConfidenceNone
+}
+
+func effectiveBusinessLogicMinConfidence(cfg *config.Config) string {
+	min := cfg.Heuristics.BusinessLogicMinConfidence
+	if cfg.Heuristics.BusinessLogicMode == "ci" && confidenceMeets(businessLogicConfidenceHigh, min) {
+		return string(businessLogicConfidenceHigh)
+	}
+	return min
+}
+
+func confidenceMeets(got businessLogicConfidence, min string) bool {
+	levels := map[businessLogicConfidence]int{
+		businessLogicConfidenceNone:   0,
+		businessLogicConfidenceLow:    1,
+		businessLogicConfidenceMedium: 2,
+		businessLogicConfidenceHigh:   3,
+	}
+	want, ok := levels[businessLogicConfidence(min)]
+	if !ok {
+		want = levels[businessLogicConfidenceLow]
+	}
+	return levels[got] >= want
+}
+
+func (f *businessFunctionFacts) isTechnicalDetectionOnly() bool {
+	if !containsWord(f.fn.Name.Name, "Detect") {
+		return false
+	}
+	if !f.usesTechnicalPackage {
+		return false
+	}
+	return !f.domainTypeUse && !f.domainMutation && !f.domainMethodCall && !f.domainConstructorCall && !f.domainErrorReturn && len(f.usecaseCalls) == 0
+}
+
+func (f *businessFunctionFacts) componentRole() config.Role {
+	return f.fileRole
 }
 
 func (f *businessFunctionFacts) classify() ([]businessLogicSignal, []businessLogicSignal) {
@@ -236,8 +341,8 @@ func (f *businessFunctionFacts) typeHasRole(t types.Type, role config.Role) bool
 	case *types.Signature:
 		return f.typeHasRole(tt.Results(), role)
 	case *types.Tuple:
-		for i := 0; i < tt.Len(); i++ {
-			if f.typeHasRole(tt.At(i).Type(), role) {
+		for v := range tt.Variables() {
+			if f.typeHasRole(v.Type(), role) {
 				return true
 			}
 		}

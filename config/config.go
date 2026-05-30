@@ -58,6 +58,8 @@ type Heuristics struct {
 	BusinessLogicMinWeakSignals           *int     `yaml:"businessLogicMinWeakSignals"`
 	BusinessLogicMaxFunctionNodes         *int     `yaml:"businessLogicMaxFunctionNodes"`
 	BusinessLogicMaxDiagnosticsPerPackage *int     `yaml:"businessLogicMaxDiagnosticsPerPackage"`
+	BusinessLogicMode                     string   `yaml:"businessLogicMode"`
+	BusinessLogicMinConfidence            string   `yaml:"businessLogicMinConfidence"`
 	BusinessKeywords                      []string `yaml:"businessKeywords"`
 	ExcludeTestFiles                      *bool    `yaml:"excludeTestFiles"`
 }
@@ -147,6 +149,12 @@ func (c *Config) applyDefaults() {
 		defaultExcludeTestFiles := true
 		c.Heuristics.ExcludeTestFiles = &defaultExcludeTestFiles
 	}
+	if c.Heuristics.BusinessLogicMode == "" {
+		c.Heuristics.BusinessLogicMode = "audit"
+	}
+	if c.Heuristics.BusinessLogicMinConfidence == "" {
+		c.Heuristics.BusinessLogicMinConfidence = "medium"
+	}
 	if len(c.Heuristics.BusinessKeywords) == 0 {
 		c.Heuristics.BusinessKeywords = []string{"Validate", "Authorize", "Compute", "Calculate", "Apply", "Transition", "Can", "Detect", "Migrate", "Resolve", "Profile", "Score", "Ranking", "Restore", "Purge", "Update", "Performance", "Selected"}
 	}
@@ -219,6 +227,16 @@ func (c *Config) Validate() error {
 	}
 	if c.Heuristics.BusinessLogicMaxDiagnosticsPerPackage != nil && *c.Heuristics.BusinessLogicMaxDiagnosticsPerPackage < 1 {
 		return errors.New("heuristics.businessLogicMaxDiagnosticsPerPackage: must be >= 1")
+	}
+	switch c.Heuristics.BusinessLogicMode {
+	case "ci", "audit":
+	default:
+		return errors.New("heuristics.businessLogicMode: must be ci or audit")
+	}
+	switch c.Heuristics.BusinessLogicMinConfidence {
+	case "low", "medium", "high":
+	default:
+		return errors.New("heuristics.businessLogicMinConfidence: must be low, medium, or high")
 	}
 	for rule, severity := range c.Rules {
 		switch severity {

@@ -116,10 +116,10 @@ func discoverModulePath(root string) string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		if modulePath, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(modulePath)
 		}
 	}
 	return ""
@@ -282,8 +282,10 @@ func (r runner) isExcluded(rule, filePath string) bool {
 }
 
 func (r runner) relImportPath(importPath string) string {
-	if r.modulePath != "" && strings.HasPrefix(importPath, r.modulePath+"/") {
-		return strings.TrimPrefix(importPath, r.modulePath+"/")
+	if r.modulePath != "" {
+		if rel, ok := strings.CutPrefix(importPath, r.modulePath+"/"); ok {
+			return rel
+		}
 	}
 	if r.modulePath != "" && importPath == r.modulePath {
 		return ""
@@ -299,8 +301,8 @@ func (r runner) filePath(file *ast.File) string {
 	}
 	if r.cfg.Root != "" {
 		root := strings.ReplaceAll(r.cfg.Root, "\\", "/")
-		if strings.HasPrefix(pos, root+"/") {
-			return strings.TrimPrefix(pos, root+"/")
+		if rel, ok := strings.CutPrefix(pos, root+"/"); ok {
+			return rel
 		}
 	}
 	return pos

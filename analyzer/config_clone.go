@@ -1,6 +1,10 @@
 package analyzer
 
-import "github.com/bnema/hexcheck/config"
+import (
+	"maps"
+
+	"github.com/bnema/hexcheck/config"
+)
 
 func cloneConfig(in *config.Config) *config.Config {
 	if in == nil {
@@ -13,9 +17,7 @@ func cloneConfig(in *config.Config) *config.Config {
 		out.Components[name] = component
 	}
 	out.Rules = make(map[string]config.Severity, len(in.Rules))
-	for rule, severity := range in.Rules {
-		out.Rules[rule] = severity
-	}
+	maps.Copy(out.Rules, in.Rules)
 	out.ExternalTypes.FrameworkPackages = append([]string(nil), in.ExternalTypes.FrameworkPackages...)
 	out.ExternalTypes.AdapterTypePackages = append([]string(nil), in.ExternalTypes.AdapterTypePackages...)
 	out.Heuristics.BusinessKeywords = append([]string(nil), in.Heuristics.BusinessKeywords...)
@@ -24,6 +26,8 @@ func cloneConfig(in *config.Config) *config.Config {
 	out.Heuristics.BusinessLogicMinWeakSignals = cloneInt(in.Heuristics.BusinessLogicMinWeakSignals)
 	out.Heuristics.BusinessLogicMaxFunctionNodes = cloneInt(in.Heuristics.BusinessLogicMaxFunctionNodes)
 	out.Heuristics.BusinessLogicMaxDiagnosticsPerPackage = cloneInt(in.Heuristics.BusinessLogicMaxDiagnosticsPerPackage)
+	out.Heuristics.BusinessLogicMode = in.Heuristics.BusinessLogicMode
+	out.Heuristics.BusinessLogicMinConfidence = in.Heuristics.BusinessLogicMinConfidence
 	if in.Heuristics.ExcludeTestFiles != nil {
 		value := *in.Heuristics.ExcludeTestFiles
 		out.Heuristics.ExcludeTestFiles = &value
