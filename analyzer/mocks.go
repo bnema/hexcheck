@@ -34,8 +34,7 @@ func (r runner) checkMocks(file *ast.File, filePath string, current config.Match
 			return true
 		}
 
-		name := strings.ToLower(ts.Name.Name)
-		if !isTestDoubleName(name) {
+		if !isTestDoubleName(ts.Name.Name) {
 			return true
 		}
 		obj, ok := r.pass.TypesInfo.Defs[ts.Name].(*types.TypeName)
@@ -78,5 +77,31 @@ func (r runner) importedPortInterfaces(file *ast.File) []*types.Interface {
 }
 
 func isTestDoubleName(name string) bool {
-	return strings.HasPrefix(name, "fake") || strings.HasSuffix(name, "fake") || strings.HasPrefix(name, "stub") || strings.HasSuffix(name, "stub")
+	return hasWordPrefix(name, "fake") || hasWordSuffix(name, "fake") || hasWordPrefix(name, "stub") || hasWordSuffix(name, "stub")
+}
+
+func hasWordPrefix(name, prefix string) bool {
+	if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) && len(name) == len(prefix) {
+		return true
+	}
+	if len(name) < len(prefix) || !strings.EqualFold(name[:len(prefix)], prefix) {
+		return false
+	}
+	return startsCamelWord(name[len(prefix):])
+}
+
+func hasWordSuffix(name, suffix string) bool {
+	if len(name) < len(suffix) || !strings.EqualFold(name[len(name)-len(suffix):], suffix) {
+		return false
+	}
+	prefix := name[:len(name)-len(suffix)]
+	return prefix == "" || strings.HasSuffix(prefix, "_")
+}
+
+func startsCamelWord(s string) bool {
+	if s == "" {
+		return true
+	}
+	r := rune(s[0])
+	return r == '_' || (r >= 'A' && r <= 'Z')
 }

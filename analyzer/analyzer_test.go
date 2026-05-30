@@ -13,7 +13,7 @@ func TestAnalyzer(t *testing.T) {
 		patterns []string
 	}{
 		{
-			name: "boundary imports",
+			name: "boundary imports and heuristics",
 			patterns: []string{
 				"example.com/project/internal/domain",
 				"example.com/project/internal/application/usecase",

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/bnema/hexcheck/config"
+	"github.com/bnema/hexcheck/internal/glob"
 	"golang.org/x/tools/go/analysis"
 )
 
@@ -228,7 +229,7 @@ func (r runner) isInfraType(t types.Type) bool {
 
 func (r runner) matchesExternal(pkg string) bool {
 	for _, pattern := range append(r.cfg.ExternalTypes.FrameworkPackages, r.cfg.ExternalTypes.AdapterTypePackages...) {
-		if simpleMatch(pattern, pkg) {
+		if glob.Match(pattern, pkg) || glob.Match(pattern+"/**", pkg) {
 			return true
 		}
 	}
@@ -265,9 +266,4 @@ func (r runner) filePath(file *ast.File) string {
 		}
 	}
 	return pos
-}
-
-func simpleMatch(pattern, name string) bool {
-	pattern = strings.TrimSuffix(pattern, "/**")
-	return name == pattern || strings.HasPrefix(name, pattern+"/")
 }
