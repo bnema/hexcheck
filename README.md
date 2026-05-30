@@ -4,15 +4,28 @@
 
 It is built on `golang.org/x/tools/go/analysis`, runs as a standalone CLI, and can be embedded in a custom `golangci-lint` binary through the Module Plugin System.
 
-## Goals
+## What it checks
 
-- map project packages to configurable architecture components
-- catch deterministic boundary violations in CI
-- warn about suspicious business logic in adapters and entrypoints
-- warn when tests bypass generated interface mocks with local fakes or real adapters
-- smoke test the analyzer against real Go repositories through opt-in local paths
+- dependency direction between configurable architecture roles
+- framework or infrastructure types leaking into core/port APIs
+- suspicious business logic in adapters and entrypoints
+- missing generated mocks for port interfaces
+- local fakes or concrete adapters in tests where generated mocks should be used
 
-## Quick example
+## Architecture roles
+
+`hexcheck` does not require folders to be named `domain`, `usecase`, or `adapters`. A repository maps its own paths to roles in `.hexcheck.yaml`.
+
+Supported roles:
+
+- `core` — domain/core business logic
+- `usecase` — application use cases and orchestration
+- `ports` — interfaces/contracts
+- `adapter` — infrastructure, persistence, external services, outbound adapters
+- `entrypoint` — CLI, HTTP handlers, UI entrypoints, app bootstrap
+- `ignore` — generated code, mocks, vendored paths
+
+## Quick config
 
 ```yaml
 version: 1
@@ -21,24 +34,35 @@ components:
     role: core
     paths:
       - internal/domain/**
-  usecase:
+      - internal/core/**
+  usecases:
     role: usecase
     paths:
       - internal/application/usecase/**
+      - internal/application/usecases/**
+      - internal/usecase/**
+      - internal/usecases/**
   ports:
     role: ports
     paths:
       - internal/application/port/**
+      - internal/domain/repository/**
   adapters:
     role: adapter
     paths:
       - internal/infrastructure/**
-      - internal/ui/**
-      - internal/cli/**
+      - internal/adapters/**
   entrypoints:
     role: entrypoint
     paths:
       - cmd/**
+  generated:
+    role: ignore
+    paths:
+      - '**/mocks/**'
+      - '**/generated/**'
+      - '**/*_templ.go'
+      - '**/*_gen.go'
 
 rules:
   no-adapter-imports-in-core: error
@@ -48,13 +72,41 @@ rules:
   no-adapter-to-adapter-imports: warn
   suspicious-business-logic-in-adapter: warn
   no-local-fakes-for-ports: warn
+  missing-generated-mock-for-port: warn
   prefer-generated-mocks: warn
+
+heuristics:
+  businessLogicThreshold: 8
+  businessLogicMinStrongSignals: 2
+  businessLogicMinWeakSignals: 2
+  businessLogicMaxFunctionNodes: 2000
+  businessLogicMaxDiagnosticsPerPackage: 10
+  excludeTestFiles: true
+
+mocking:
+  generatedMockPaths:
+    - internal/mocks/**
+    - internal/application/mocks/**
+    - internal/application/port/mocks/**
+  generatedMockNamePatterns:
+    - Mock{{Interface}}
+    - '{{Interface}}Mock'
 ```
+
+A fuller example lives in [`examples/hexcheck.yaml`](examples/hexcheck.yaml).
 
 ## Standalone CLI
 
+Because `hexcheck` is a `go/analysis` analyzer, standalone flags use the analyzer prefix:
+
 ```bash
-hexcheck --config .hexcheck.yaml ./...
+hexcheck -hexcheck.config .hexcheck.yaml -hexcheck.root . ./...
+```
+
+During development:
+
+```bash
+go run ./cmd/hexcheck -hexcheck.config examples/hexcheck.yaml -hexcheck.root . ./...
 ```
 
 ## golangci-lint module plugin
@@ -68,7 +120,6 @@ golangci-lint custom -c examples/custom-gcl.yml
 Example builder config:
 
 ```yaml
-# examples/custom-gcl.yml
 version: v2.12.2
 name: hex-golangci-lint
 destination: ./bin
@@ -81,7 +132,6 @@ plugins:
 Enable it in a project:
 
 ```yaml
-# examples/golangci.yml
 version: "2"
 linters:
   enable:
@@ -94,6 +144,10 @@ linters:
         settings:
           config: .hexcheck.yaml
 ```
+
+## Agent configuration guide
+
+[`SKILL.md`](SKILL.md) explains how an agent should configure `hexcheck` for a new repository, including non-standard layouts such as `core`/`boundaries`.
 
 ## Local development
 
