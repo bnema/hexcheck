@@ -45,7 +45,7 @@ func (r runner) isSuspiciousBusinessFunction(fn *ast.FuncDecl, filePath string) 
 	}
 	strong, weak := facts.classify()
 	if len(strong) >= *r.cfg.Heuristics.BusinessLogicMinStrongSignals || (len(strong) >= 1 && len(weak) >= *r.cfg.Heuristics.BusinessLogicMinWeakSignals) {
-		return r.report(fn.Name.Pos(), "suspicious-business-logic-in-adapter", filePath, "adapter function %s has business-logic evidence: strong=%v weak=%v", fn.Name.Name, signalKinds(strong), signalKinds(weak))
+		return r.report(fn.Name.Pos(), "suspicious-business-logic-in-adapter", filePath, "%s function %s has business-logic evidence: strong=%v weak=%v", facts.componentRole(), fn.Name.Name, signalKinds(strong), signalKinds(weak))
 	}
 	return false
 }
@@ -134,6 +134,15 @@ func collaboratorKey(info *types.Info, expr ast.Expr) string {
 		}
 	}
 	return fmt.Sprintf("%p", expr)
+}
+
+func (f *businessFunctionFacts) componentRole() config.Role {
+	pkgRel := f.runner.relImportPath(f.runner.pass.Pkg.Path())
+	current, ok := f.runner.cfg.ComponentForPath(pkgRel)
+	if !ok {
+		return config.RoleAdapter
+	}
+	return current.Role
 }
 
 func (f *businessFunctionFacts) classify() ([]businessLogicSignal, []businessLogicSignal) {
@@ -236,8 +245,8 @@ func (f *businessFunctionFacts) typeHasRole(t types.Type, role config.Role) bool
 	case *types.Signature:
 		return f.typeHasRole(tt.Results(), role)
 	case *types.Tuple:
-		for i := 0; i < tt.Len(); i++ {
-			if f.typeHasRole(tt.At(i).Type(), role) {
+		for v := range tt.Variables() {
+			if f.typeHasRole(v.Type(), role) {
 				return true
 			}
 		}

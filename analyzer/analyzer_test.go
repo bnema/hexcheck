@@ -24,6 +24,7 @@ func TestAnalyzer(t *testing.T) {
 			name: "heuristics",
 			patterns: []string{
 				"example.com/project/internal/infrastructure/http",
+				"example.com/project/cmd/app",
 			},
 		},
 		{
@@ -53,6 +54,7 @@ func testConfig() *config.Config {
 			"ports":   {Role: config.RolePorts, Paths: []string{"internal/application/port/**"}},
 			"http":    {Role: config.RoleAdapter, Paths: []string{"internal/infrastructure/http/**"}},
 			"sql":     {Role: config.RoleAdapter, Paths: []string{"internal/infrastructure/sql/**", "internal/sqlbad/**"}},
+			"cmd":     {Role: config.RoleEntrypoint, Paths: []string{"cmd/**"}},
 		},
 		Rules: config.DefaultRuleSeverities(),
 		Heuristics: config.Heuristics{

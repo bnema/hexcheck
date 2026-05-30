@@ -2,7 +2,7 @@ package http
 
 import "example.com/project/internal/domain"
 
-func ValidateOrder(order *domain.User) error { // want "suspicious-business-logic-in-adapter"
+func ValidateOrder(order *domain.User) error { // want "suspicious-business-logic-in-adapter: adapter function ValidateOrder"
 	if order.Name == "" {
 		return domain.PolicyError{}
 	}
