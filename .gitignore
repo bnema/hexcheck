@@ -2,3 +2,5 @@ bin/
 custom-gcl
 coverage.out
 .DS_Store
+.worktrees/
+dist/

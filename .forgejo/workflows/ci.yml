@@ -1,3 +1,5 @@
+# CI for the Forgejo runner. Forgejo reads this directory instead of
+# .github/workflows, so the GitHub mirror keeps its own CI.
 name: CI
 
 on:
@@ -7,28 +9,31 @@ on:
 
 jobs:
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v8
+          cache: true
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.14.0
 
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Verify tidy
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
-      - name: Test
-        run: go test -race ./...
+      - run: go test -race ./...
       - name: Self-check
         run: go run ./cmd/hexcheck -fail-on warn ./...

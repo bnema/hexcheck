@@ -66,7 +66,10 @@ components:
 
 rules:
   no-adapter-imports-in-core: error
+  no-usecase-imports-in-core: error
   no-infra-imports-in-usecase: error
+  no-infra-imports-in-ports: error
+  no-entrypoint-imports-in-adapter: error
   no-framework-types-in-core: error
   no-infra-types-in-ports: error
   no-adapter-to-adapter-imports: warn
@@ -99,19 +102,61 @@ A fuller example lives in [`examples/hexcheck.yaml`](examples/hexcheck.yaml).
 
 Business-logic diagnostics include a confidence level. `audit` mode reports findings at or above `businessLogicMinConfidence`; `ci` mode reports only high-confidence findings.
 
+## Rules
+
+| Rule | Default | Reports |
+| --- | --- | --- |
+| `no-adapter-imports-in-core` | error | core imports an adapter or entrypoint |
+| `no-usecase-imports-in-core` | error | core imports a usecase |
+| `no-infra-imports-in-usecase` | error | usecase imports an adapter or entrypoint |
+| `no-infra-imports-in-ports` | error | ports import an adapter or entrypoint |
+| `no-entrypoint-imports-in-adapter` | error | adapter imports an entrypoint |
+| `no-framework-types-in-core` | error | exported core API exposes an adapter or framework type |
+| `no-infra-types-in-ports` | error | port interface method exposes an adapter or framework type |
+| `no-adapter-to-adapter-imports` | warn | adapter imports another adapter component |
+| `suspicious-business-logic-in-adapter` | warn | adapter or entrypoint function looks like business logic |
+| `no-local-fakes-for-ports` | warn | test defines a fake for a port that has a generated mock |
+| `missing-generated-mock-for-port` | warn | port interface has no generated mock |
+| `prefer-generated-mocks` | warn | usecase/core test imports a concrete adapter |
+
+Type-leak rules look through pointers, slices, maps, channels, function signatures, inline structs, aliases, and generic type arguments.
+
+The config is strict: unknown keys and unknown rule names are errors.
+
+## Suppressing a finding
+
+Prefer config `allow` entries for whole files or directories. For one line, use an inline directive with a reason:
+
+```go
+type Rows interface {
+	//hexcheck:ignore no-infra-types-in-ports row type is part of the published contract
+	Next() sql.Row
+}
+```
+
+The directive covers its own line and the next one. It accepts a comma-separated rule list. A directive without a reason, or with an unknown rule, is reported as `invalid-ignore-directive`.
+
 ## Standalone CLI
 
-Because `hexcheck` is a `go/analysis` analyzer, standalone flags use the analyzer prefix:
-
 ```bash
-hexcheck -hexcheck.config .hexcheck.yaml -hexcheck.root . ./...
+hexcheck init              # write a starter .hexcheck.yaml from detected folders
+hexcheck ./...             # check; config is discovered from the root upwards
+hexcheck -config .hexcheck.yaml -root . ./...
 ```
 
-During development:
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `-config` | discovered | path to `.hexcheck.yaml` |
+| `-root` | current dir | project root for config-relative paths |
+| `-module` | from `go.mod` | Go module path |
+| `-fail-on` | `error` | lowest severity that fails: `error` or `warn` |
+| `-json` | false | JSON output on stdout |
+| `-test` | true | also analyze test files |
+| `-version` | | print the version |
 
-```bash
-go run ./cmd/hexcheck -hexcheck.config examples/hexcheck.yaml -hexcheck.root . ./...
-```
+Each finding is prefixed with its severity, e.g. `[warn] no-adapter-to-adapter-imports: ...`.
+
+Exit codes: `0` no failing findings, `1` load/config/analysis error, `2` usage error, `3` findings at or above `-fail-on`.
 
 ## golangci-lint module plugin
 
@@ -149,6 +194,8 @@ linters:
           config: .hexcheck.yaml
 ```
 
+golangci-lint reports every hexcheck finding as an issue, whatever its configured severity. To fail only on `error` rules, set the warn rules to `off` in `.hexcheck.yaml`, or exclude issues whose text matches `^\[warn\]` with `linters.exclusions.rules`.
+
 ## Agent configuration guide
 
 [`SKILL.md`](SKILL.md) explains how an agent should configure `hexcheck` for a new repository, including non-standard layouts such as `core`/`boundaries`.
@@ -156,7 +203,7 @@ linters:
 ## Local development
 
 ```bash
-make test
-make check
+make test        # go test -race
+make check       # tidy, lint, test, and hexcheck on its own code
 HEXCHECK_SMOKE_REPO=/path/to/local/go/repo make smoke-local
 ```

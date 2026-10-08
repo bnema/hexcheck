@@ -47,6 +47,41 @@ allow:
 			},
 		},
 		{
+			name:    "unknown top-level key",
+			yaml:    "version: 1\ncomponent: {}\n",
+			wantErr: true,
+		},
+		{
+			name:    "unknown nested key",
+			yaml:    "version: 1\nheuristics:\n  businessLogicTreshold: 3\n",
+			wantErr: true,
+		},
+		{
+			name:    "unknown rule name",
+			yaml:    "version: 1\nrules:\n  no-adaptr-imports-in-core: error\n",
+			wantErr: true,
+		},
+		{
+			name:    "unknown rule in ruleSettings",
+			yaml:    "version: 1\nruleSettings:\n  typo-rule:\n    excludePaths: [cmd/**]\n",
+			wantErr: true,
+		},
+		{
+			name:    "unknown rule in allow",
+			yaml:    "version: 1\nallow:\n  - rule: typo-rule\n    path: cmd/**\n    reason: x\n",
+			wantErr: true,
+		},
+		{
+			name: "empty file uses defaults",
+			yaml: "",
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				if cfg.Severity("no-infra-imports-in-ports") != SeverityError {
+					t.Fatalf("default severity not applied")
+				}
+			},
+		},
+		{
 			name: "invalid role",
 			yaml: `version: 1
 components:

@@ -1,7 +1,7 @@
-.PHONY: test lint tidy check smoke-local
+.PHONY: test lint tidy self-check check smoke-local
 
 test:
-	go test ./...
+	go test -race ./...
 
 lint:
 	golangci-lint run ./...
@@ -9,7 +9,10 @@ lint:
 tidy:
 	go mod tidy
 
-check: tidy test
+self-check:
+	go run ./cmd/hexcheck -fail-on warn ./...
+
+check: tidy lint test self-check
 
 smoke-local:
 	@if [ -z "$(HEXCHECK_SMOKE_REPO)" ]; then \

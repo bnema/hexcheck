@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,8 +92,10 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if hasExplicitVersion(data) && cfg.Version == 0 {
 		return nil, errors.New("version: unsupported value 0")
@@ -185,7 +189,10 @@ func hasExplicitVersion(data []byte) bool {
 func DefaultRuleSeverities() map[string]Severity {
 	return map[string]Severity{
 		"no-adapter-imports-in-core":           SeverityError,
+		"no-usecase-imports-in-core":           SeverityError,
 		"no-infra-imports-in-usecase":          SeverityError,
+		"no-infra-imports-in-ports":            SeverityError,
+		"no-entrypoint-imports-in-adapter":     SeverityError,
 		"no-framework-types-in-core":           SeverityError,
 		"no-infra-types-in-ports":              SeverityError,
 		"no-adapter-to-adapter-imports":        SeverityWarn,
@@ -238,16 +245,28 @@ func (c *Config) Validate() error {
 	default:
 		return errors.New("heuristics.businessLogicMinConfidence: must be low, medium, or high")
 	}
+	known := DefaultRuleSeverities()
 	for rule, severity := range c.Rules {
+		if _, ok := known[rule]; !ok {
+			return fmt.Errorf("rules.%s: unknown rule", rule)
+		}
 		switch severity {
 		case SeverityOff, SeverityWarn, SeverityError:
 		default:
 			return fmt.Errorf("rules.%s: unsupported severity %q", rule, severity)
 		}
 	}
+	for rule := range c.RuleSettings {
+		if _, ok := known[rule]; !ok {
+			return fmt.Errorf("ruleSettings.%s: unknown rule", rule)
+		}
+	}
 	for i, allow := range c.Allow {
 		if allow.Rule == "" || allow.Path == "" || allow.Reason == "" {
 			return fmt.Errorf("allow[%d]: rule, path, and reason are required", i)
+		}
+		if _, ok := known[allow.Rule]; !ok {
+			return fmt.Errorf("allow[%d].rule: unknown rule %q", i, allow.Rule)
 		}
 	}
 	return nil

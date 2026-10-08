@@ -5,7 +5,7 @@ description: Use when configuring or running hexcheck in a Go repo for hexagonal
 
 # Hexcheck
 
-Configure `.hexcheck.yaml` by mapping repo paths to roles. Folder names do not matter; roles do.
+Configure `.hexcheck.yaml` by mapping repo paths to roles. Folder names do not matter; roles do. Start with `hexcheck init`, which writes a starter config from detected folders, then refine it.
 
 Roles:
 - `core`: domain/core business logic
@@ -35,7 +35,10 @@ Recommended rules:
 ```yaml
 rules:
   no-adapter-imports-in-core: error
+  no-usecase-imports-in-core: error
   no-infra-imports-in-usecase: error
+  no-infra-imports-in-ports: error
+  no-entrypoint-imports-in-adapter: error
   no-framework-types-in-core: error
   no-infra-types-in-ports: error
   no-adapter-to-adapter-imports: warn
@@ -66,7 +69,10 @@ mocking:
 Run:
 
 ```bash
-hexcheck -hexcheck.config .hexcheck.yaml -hexcheck.root . ./...
+hexcheck -config .hexcheck.yaml -root . ./...   # exit 3 on error-level findings
+hexcheck -fail-on warn ./...                     # also fail on warn-level findings
 ```
 
-Agent checklist: read repo architecture docs, map paths to roles, ignore generated/mocks, configure mock paths, run once, tune `ruleSettings.*.excludePaths` only after inspecting examples.
+The config is strict: unknown keys or rule names fail the run. For a single justified exception, use an inline directive with a reason: `//hexcheck:ignore <rule>[,<rule>] <reason>`.
+
+Agent checklist: read repo architecture docs, map paths to roles, ignore generated/mocks, configure mock paths, run once, tune `ruleSettings.*.excludePaths` only after inspecting examples, and prefer `allow` entries or inline directives with reasons over turning rules off.
