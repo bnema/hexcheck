@@ -40,7 +40,10 @@ components:
 
 rules:
   no-adapter-imports-in-core: error
+  no-usecase-imports-in-core: error
   no-infra-imports-in-usecase: error
+  no-infra-imports-in-ports: error
+  no-entrypoint-imports-in-adapter: error
   no-framework-types-in-core: error
   no-infra-types-in-ports: error
   no-adapter-to-adapter-imports: warn
