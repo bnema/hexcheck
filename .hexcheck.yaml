@@ -1,0 +1,23 @@
+# hexcheck checks its own layering: config is the core model, analyzer
+# applies it, and cmd/golangci are the entrypoints.
+version: 1
+components:
+  core:
+    role: core
+    paths:
+      - config/**
+      - internal/glob/**
+  analyzer:
+    role: usecase
+    paths:
+      - analyzer/**
+  entrypoints:
+    role: entrypoint
+    paths:
+      - cmd/**
+      - golangci/**
+  ignored:
+    role: ignore
+    paths:
+      - analyzer/testdata/**
+      - test/**
