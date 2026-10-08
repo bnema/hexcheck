@@ -17,7 +17,9 @@ func TestAnalyzer(t *testing.T) {
 			name: "boundary imports",
 			patterns: []string{
 				"example.com/project/internal/domain",
+				"example.com/project/internal/policy",
 				"example.com/project/internal/application/usecase",
+				"example.com/project/internal/infrastructure/sql",
 			},
 		},
 		{

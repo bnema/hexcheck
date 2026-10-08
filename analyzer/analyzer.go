@@ -1,13 +1,16 @@
 package analyzer
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/bnema/hexcheck/config"
 	"github.com/bnema/hexcheck/internal/glob"
@@ -23,26 +26,60 @@ type Options struct {
 	ModulePath string
 }
 
+// Result is returned for each analyzed package. Drivers use it to map a
+// diagnostic Category (the rule name) to its configured severity.
+type Result struct {
+	Severities map[string]config.Severity
+}
+
+// Severity returns the configured severity of a diagnostic category.
+func (r *Result) Severity(rule string) config.Severity {
+	if r == nil {
+		return config.SeverityOff
+	}
+	return r.Severities[rule]
+}
+
+// state is shared by every package analyzed by one Analyzer instance, so the
+// config and mock index are loaded once per run instead of once per package.
+type state struct {
+	once       sync.Once
+	cfg        *config.Config
+	modulePath string
+	err        error
+	mockOnce   sync.Once
+	mocks      map[string]bool
+}
+
 func New(opts Options) *analysis.Analyzer {
 	var configPathFlag string
 	var rootFlag string
 	var modulePathFlag string
+	st := &state{}
 
 	a := &analysis.Analyzer{
-		Name: Name,
-		Doc:  "checks hexagonal architecture boundaries",
+		Name:       Name,
+		Doc:        "checks hexagonal architecture boundaries",
+		ResultType: reflect.TypeFor[*Result](),
 		Run: func(pass *analysis.Pass) (any, error) {
-			cfg, root, err := resolveConfig(opts, configPathFlag, rootFlag)
-			if err != nil {
-				return nil, err
+			st.once.Do(func() {
+				cfg, root, err := resolveConfig(opts, configPathFlag, rootFlag)
+				if err != nil {
+					st.err = err
+					return
+				}
+				modulePath := firstNonEmpty(opts.ModulePath, modulePathFlag)
+				if modulePath == "" {
+					modulePath = discoverModulePath(root)
+				}
+				st.cfg, st.modulePath = cfg, modulePath
+			})
+			if st.err != nil {
+				return nil, st.err
 			}
-			modulePath := firstNonEmpty(opts.ModulePath, modulePathFlag)
-			if modulePath == "" {
-				modulePath = discoverModulePath(root)
-			}
-			r := runner{pass: pass, cfg: cfg, modulePath: modulePath}
+			r := runner{pass: pass, cfg: st.cfg, modulePath: st.modulePath, state: st}
 			r.run()
-			return nil, nil
+			return &Result{Severities: st.cfg.Rules}, nil
 		},
 	}
 	if opts.Config == nil {
@@ -138,6 +175,8 @@ type runner struct {
 	pass       *analysis.Pass
 	cfg        *config.Config
 	modulePath string
+	state      *state
+	ignores    ignoreIndex
 }
 
 func (r runner) run() {
@@ -146,12 +185,14 @@ func (r runner) run() {
 	if !ok || current.Role == config.RoleIgnore {
 		return
 	}
+	r.ignores = ignoreIndex{}
 	businessDiagnostics := 0
 	for _, file := range r.pass.Files {
 		filePath := r.filePath(file)
 		if isGeneratedFile(file) {
 			continue
 		}
+		r.collectIgnores(file)
 		r.checkImports(file, filePath, current)
 		r.checkTypeLeaks(file, filePath, current)
 		r.checkMissingMocks(file, filePath, current)
@@ -171,8 +212,14 @@ func (r runner) checkImports(file *ast.File, filePath string, current config.Mat
 		switch {
 		case current.Role == config.RoleCore && (imported.Role == config.RoleAdapter || imported.Role == config.RoleEntrypoint):
 			r.report(imp.Pos(), "no-adapter-imports-in-core", filePath, "core component %q imports %s component %q (%s)", current.Name, imported.Role, imported.Name, importPath)
-		case current.Role == config.RoleUsecase && imported.Role == config.RoleAdapter:
-			r.report(imp.Pos(), "no-infra-imports-in-usecase", filePath, "usecase component %q imports adapter component %q (%s)", current.Name, imported.Name, importPath)
+		case current.Role == config.RoleCore && imported.Role == config.RoleUsecase:
+			r.report(imp.Pos(), "no-usecase-imports-in-core", filePath, "core component %q imports usecase component %q (%s)", current.Name, imported.Name, importPath)
+		case current.Role == config.RoleUsecase && (imported.Role == config.RoleAdapter || imported.Role == config.RoleEntrypoint):
+			r.report(imp.Pos(), "no-infra-imports-in-usecase", filePath, "usecase component %q imports %s component %q (%s)", current.Name, imported.Role, imported.Name, importPath)
+		case current.Role == config.RolePorts && (imported.Role == config.RoleAdapter || imported.Role == config.RoleEntrypoint):
+			r.report(imp.Pos(), "no-infra-imports-in-ports", filePath, "ports component %q imports %s component %q (%s)", current.Name, imported.Role, imported.Name, importPath)
+		case current.Role == config.RoleAdapter && imported.Role == config.RoleEntrypoint:
+			r.report(imp.Pos(), "no-entrypoint-imports-in-adapter", filePath, "adapter component %q imports entrypoint component %q (%s)", current.Name, imported.Name, importPath)
 		case current.Role == config.RoleAdapter && imported.Role == config.RoleAdapter && current.Name != imported.Name:
 			r.report(imp.Pos(), "no-adapter-to-adapter-imports", filePath, "adapter component %q imports adapter component %q (%s)", current.Name, imported.Name, importPath)
 		}
@@ -216,26 +263,61 @@ func (r runner) checkFieldList(fields *ast.FieldList, filePath, rule string) {
 		return
 	}
 	for _, field := range fields.List {
-		if r.isInfraType(r.pass.TypesInfo.TypeOf(field.Type)) {
-			r.report(field.Pos(), rule, filePath, "%s exposes infrastructure/framework type %s", rule, r.pass.TypesInfo.TypeOf(field.Type))
+		t := r.pass.TypesInfo.TypeOf(field.Type)
+		if r.isInfraType(t, nil) {
+			r.report(field.Pos(), rule, filePath, "exposes infrastructure/framework type %s", t)
 		}
 	}
 }
 
-func (r runner) isInfraType(t types.Type) bool {
+// isInfraType reports whether t, or any type it is composed of, belongs to an
+// adapter/entrypoint component or a configured external framework package.
+func (r runner) isInfraType(t types.Type, seen map[types.Type]bool) bool {
 	if t == nil {
 		return false
 	}
+	if seen[t] {
+		return false
+	}
+	if seen == nil {
+		seen = map[types.Type]bool{}
+	}
+	seen[t] = true
 	switch tt := t.(type) {
+	case *types.Alias:
+		return r.isInfraType(types.Unalias(tt), seen)
 	case *types.Pointer:
-		return r.isInfraType(tt.Elem())
+		return r.isInfraType(tt.Elem(), seen)
 	case *types.Slice:
-		return r.isInfraType(tt.Elem())
+		return r.isInfraType(tt.Elem(), seen)
 	case *types.Array:
-		return r.isInfraType(tt.Elem())
+		return r.isInfraType(tt.Elem(), seen)
+	case *types.Chan:
+		return r.isInfraType(tt.Elem(), seen)
 	case *types.Map:
-		return r.isInfraType(tt.Key()) || r.isInfraType(tt.Elem())
+		return r.isInfraType(tt.Key(), seen) || r.isInfraType(tt.Elem(), seen)
+	case *types.Signature:
+		return r.isInfraType(tt.Params(), seen) || r.isInfraType(tt.Results(), seen)
+	case *types.Tuple:
+		for v := range tt.Variables() {
+			if r.isInfraType(v.Type(), seen) {
+				return true
+			}
+		}
+		return false
+	case *types.Struct:
+		for field := range tt.Fields() {
+			if r.isInfraType(field.Type(), seen) {
+				return true
+			}
+		}
+		return false
 	case *types.Named:
+		for arg := range tt.TypeArgs().Types() {
+			if r.isInfraType(arg, seen) {
+				return true
+			}
+		}
 		obj := tt.Obj()
 		if obj == nil || obj.Pkg() == nil {
 			return false
@@ -260,11 +342,17 @@ func (r runner) matchesExternal(pkg string) bool {
 	return false
 }
 
+// report emits a diagnostic for rule unless it is disabled, allowed by config,
+// excluded by path, or suppressed by an inline ignore directive.
 func (r runner) report(pos token.Pos, rule, filePath, format string, args ...any) bool {
-	if !r.cfg.RuleEnabled(rule) || r.cfg.IsAllowed(rule, filePath) || r.isExcluded(rule, filePath) {
+	if !r.cfg.RuleEnabled(rule) || r.cfg.IsAllowed(rule, filePath) || r.isExcluded(rule, filePath) || r.isIgnoredInline(pos, rule) {
 		return false
 	}
-	r.pass.Reportf(pos, rule+": "+format, args...)
+	r.pass.Report(analysis.Diagnostic{
+		Pos:      pos,
+		Category: rule,
+		Message:  fmt.Sprintf("[%s] %s: %s", r.cfg.Severity(rule), rule, fmt.Sprintf(format, args...)),
+	})
 	return true
 }
 

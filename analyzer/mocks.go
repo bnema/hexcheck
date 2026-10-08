@@ -7,10 +7,8 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/bnema/hexcheck/config"
 	"github.com/bnema/hexcheck/internal/glob"
@@ -110,13 +108,11 @@ func (r runner) importedPortInterfaces(file *ast.File) []portInterface {
 	return out
 }
 
-var mockIndexCache sync.Map
-
 func (r runner) generatedMockExists(interfaceName string) bool {
 	if r.cfg.Root == "" || len(r.cfg.Mocking.GeneratedMockPaths) == 0 {
 		return false
 	}
-	index := cachedMockIndex(r.cfg.Root, r.cfg.Mocking.GeneratedMockPaths)
+	index := r.mockIndex()
 	for _, name := range r.expectedMockNames(interfaceName) {
 		if index[name] {
 			return true
@@ -125,20 +121,17 @@ func (r runner) generatedMockExists(interfaceName string) bool {
 	return false
 }
 
-func cachedMockIndex(root string, patterns []string) map[string]bool {
-	key := mockIndexKey(root, patterns)
-	if cached, ok := mockIndexCache.Load(key); ok {
-		return cached.(map[string]bool)
+// mockIndex returns the generated mock type names, built once per analyzer
+// run. The index lives in the analyzer state, not in a process-wide cache, so
+// each new run sees freshly generated mocks.
+func (r runner) mockIndex() map[string]bool {
+	if r.state == nil {
+		return buildMockIndex(r.cfg.Root, r.cfg.Mocking.GeneratedMockPaths)
 	}
-	index := buildMockIndex(root, patterns)
-	actual, _ := mockIndexCache.LoadOrStore(key, index)
-	return actual.(map[string]bool)
-}
-
-func mockIndexKey(root string, patterns []string) string {
-	patterns = append([]string(nil), patterns...)
-	sort.Strings(patterns)
-	return root + "\x00" + strings.Join(patterns, "\x00")
+	r.state.mockOnce.Do(func() {
+		r.state.mocks = buildMockIndex(r.cfg.Root, r.cfg.Mocking.GeneratedMockPaths)
+	})
+	return r.state.mocks
 }
 
 func buildMockIndex(root string, patterns []string) map[string]bool {
@@ -210,9 +203,6 @@ func isTestDoubleName(name string) bool {
 }
 
 func hasWordPrefix(name, prefix string) bool {
-	if len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) && len(name) == len(prefix) {
-		return true
-	}
 	if len(name) < len(prefix) || !strings.EqualFold(name[:len(prefix)], prefix) {
 		return false
 	}
