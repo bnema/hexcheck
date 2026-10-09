@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.1
+
+### Fixed
+
+- Load packages built by Go 1.27.2 and later: `golang.org/x/tools` v0.51.0 reads export data version 5. Older builds failed with `export data version 5 is greater than maximum supported version 4`.
+- Building hexcheck now requires Go 1.26 or later.
+
 ## v0.3.0
 
 ### Breaking
