@@ -197,6 +197,8 @@ func DefaultRuleSeverities() map[string]Severity {
 		"no-infra-types-in-ports":              SeverityError,
 		"no-adapter-to-adapter-imports":        SeverityWarn,
 		"suspicious-business-logic-in-adapter": SeverityWarn,
+		"unused-ignore-directive":              SeverityWarn,
+		"business-logic-diagnostics-hidden":    SeverityWarn,
 		"no-local-fakes-for-ports":             SeverityWarn,
 		"missing-generated-mock-for-port":      SeverityWarn,
 		"prefer-generated-mocks":               SeverityWarn,

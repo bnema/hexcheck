@@ -115,11 +115,15 @@ Business-logic diagnostics include a confidence level. `audit` mode reports find
 | `no-infra-types-in-ports` | error | port interface method exposes an adapter or framework type |
 | `no-adapter-to-adapter-imports` | warn | adapter imports another adapter component |
 | `suspicious-business-logic-in-adapter` | warn | adapter or entrypoint function looks like business logic |
+| `business-logic-diagnostics-hidden` | warn | package exceeds the business-logic diagnostic cap; reports the hidden count |
+| `unused-ignore-directive` | warn | inline ignore rule suppresses no diagnostics in this run |
 | `no-local-fakes-for-ports` | warn | test defines a fake for a port that has a generated mock |
 | `missing-generated-mock-for-port` | warn | port interface has no generated mock |
 | `prefer-generated-mocks` | warn | usecase/core test imports a concrete adapter |
 
 Type-leak rules look through pointers, slices, maps, channels, function signatures, inline structs, aliases, and generic type arguments.
+
+Business-logic evidence treats domain calls and mutations as weak signals. Field-by-field construction of fresh local domain values is not mutation evidence. Domain predicates (methods or package-level boolean functions) driving decisions, numeric domain operands in ordering comparisons, guarded domain errors (other than common storage sentinels), and domain-derived set membership (including comma-ok checks) provide stronger evidence with branching. `String`/`Error` formatting and `IsZero` checks alone do not. Business keywords need decision context rather than merely a domain-typed parameter (except explicit computation/scoring or validation with mutation). The per-package cap applies after inline suppression; one `business-logic-diagnostics-hidden` warning states how many additional findings it hides.
 
 The config is strict: unknown keys and unknown rule names are errors.
 
@@ -134,7 +138,7 @@ type Rows interface {
 }
 ```
 
-The directive covers its own line and the next one. It accepts a comma-separated rule list. A directive without a reason, or with an unknown rule, is reported as `invalid-ignore-directive`.
+The directive covers its own line and the next one. It accepts a comma-separated rule list. A directive without a reason, or with an unknown rule, is reported as `invalid-ignore-directive`. Each listed rule that suppresses nothing in the current run produces `unused-ignore-directive` (warn by default), including when its rule is disabled or excluded. Business-logic suppression usage is tracked even beyond the package reporting cap. Unclassified, ignored, and generated files are not checked for unused directives.
 
 ## Standalone CLI
 

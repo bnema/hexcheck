@@ -64,7 +64,7 @@ func testConfig() *config.Config {
 			BusinessLogicMinStrongSignals:         testIntPtr(2),
 			BusinessLogicMinWeakSignals:           testIntPtr(2),
 			BusinessLogicMaxFunctionNodes:         testIntPtr(2000),
-			BusinessLogicMaxDiagnosticsPerPackage: testIntPtr(10),
+			BusinessLogicMaxDiagnosticsPerPackage: testIntPtr(100),
 			BusinessLogicMode:                     "audit",
 			BusinessLogicMinConfidence:            "medium",
 			BusinessKeywords:                      []string{"Validate", "Authorize", "Compute", "Calculate", "Apply", "Transition", "Can", "Detect", "Migrate", "Resolve", "Profile", "Score", "Ranking", "Restore", "Purge", "Update", "Performance", "Selected"},

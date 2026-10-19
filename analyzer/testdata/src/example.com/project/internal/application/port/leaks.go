@@ -33,5 +33,5 @@ type UnknownDirective interface {
 }
 
 type OtherRuleDirective interface {
-	Raw() sql.Row /* want "no-infra-types-in-ports" */ //hexcheck:ignore no-adapter-imports-in-core wrong rule does not suppress
+	Raw() sql.Row /* want "no-infra-types-in-ports" "unused-ignore-directive" */ //hexcheck:ignore no-adapter-imports-in-core wrong rule does not suppress
 }

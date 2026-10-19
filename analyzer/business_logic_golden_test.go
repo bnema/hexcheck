@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bnema/hexcheck/config"
+
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
@@ -34,6 +36,39 @@ func TestBusinessLogicGoldenCases(t *testing.T) {
 				t.Fatalf("business-logic diagnostic in %s = %v, want %v", tt.file, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBusinessLogicCapGolden(t *testing.T) {
+	cfg := testConfig()
+	cfg.Components["capped"] = config.Component{Role: config.RoleAdapter, Paths: []string{"internal/infrastructure/capped/**"}}
+	cfg.Heuristics.BusinessLogicMaxDiagnosticsPerPackage = testIntPtr(1)
+	analysistest.Run(t, analysistest.TestData(), New(Options{Config: cfg, ModulePath: "example.com/project"}), "example.com/project/internal/infrastructure/capped")
+}
+
+func TestUsedIgnoreInTestPackageVariants(t *testing.T) {
+	cfg := testConfig()
+	cfg.Components["variants"] = config.Component{Role: config.RoleAdapter, Paths: []string{"internal/infrastructure/variants/**"}}
+	results := analysistest.Run(t, analysistest.TestData(), New(Options{Config: cfg, ModulePath: "example.com/project"}), "example.com/project/internal/infrastructure/variants")
+	plain, withTests := false, false
+	for _, result := range results {
+		if len(result.Diagnostics) != 0 {
+			t.Fatalf("%s: unexpected diagnostics: %v", result.Pass.Pkg.Path(), result.Diagnostics)
+		}
+		hasTestFile := false
+		for _, file := range result.Pass.Files {
+			if strings.HasSuffix(result.Pass.Fset.Position(file.Pos()).Filename, "_test.go") {
+				hasTestFile = true
+			}
+		}
+		if hasTestFile {
+			withTests = true
+		} else {
+			plain = true
+		}
+	}
+	if !plain || !withTests {
+		t.Fatalf("expected both ordinary and test package variants; plain=%v withTests=%v", plain, withTests)
 	}
 }
 

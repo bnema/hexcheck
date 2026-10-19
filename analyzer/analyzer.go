@@ -172,11 +172,19 @@ func firstNonEmpty(values ...string) string {
 }
 
 type runner struct {
-	pass       *analysis.Pass
-	cfg        *config.Config
-	modulePath string
-	state      *state
-	ignores    ignoreIndex
+	pass        *analysis.Pass
+	cfg         *config.Config
+	modulePath  string
+	state       *state
+	ignores     ignoreIndex
+	businessCap *businessDiagnosticCap
+}
+
+type businessDiagnosticCap struct {
+	reported int
+	hidden   int
+	pos      token.Pos
+	filePath string
 }
 
 func (r runner) run() {
@@ -186,7 +194,7 @@ func (r runner) run() {
 		return
 	}
 	r.ignores = ignoreIndex{}
-	businessDiagnostics := 0
+	r.businessCap = &businessDiagnosticCap{}
 	for _, file := range r.pass.Files {
 		filePath := r.filePath(file)
 		if isGeneratedFile(file) {
@@ -196,9 +204,13 @@ func (r runner) run() {
 		r.checkImports(file, filePath, current)
 		r.checkTypeLeaks(file, filePath, current)
 		r.checkMissingMocks(file, filePath, current)
-		r.checkBusinessLogic(file, filePath, current, &businessDiagnostics)
+		r.checkBusinessLogic(file, filePath, current)
 		r.checkMocks(file, filePath, current)
 	}
+	if cap := r.businessCap; cap.hidden > 0 {
+		r.report(cap.pos, "business-logic-diagnostics-hidden", cap.filePath, "%d more suspicious-business-logic-in-adapter diagnostics hidden by heuristics.businessLogicMaxDiagnosticsPerPackage", cap.hidden)
+	}
+	r.reportUnusedIgnores()
 }
 
 func (r runner) checkImports(file *ast.File, filePath string, current config.Match) {
@@ -347,6 +359,17 @@ func (r runner) matchesExternal(pkg string) bool {
 func (r runner) report(pos token.Pos, rule, filePath, format string, args ...any) bool {
 	if !r.cfg.RuleEnabled(rule) || r.cfg.IsAllowed(rule, filePath) || r.isExcluded(rule, filePath) || r.isIgnoredInline(pos, rule) {
 		return false
+	}
+	if rule == "suspicious-business-logic-in-adapter" && r.businessCap != nil {
+		cap := r.businessCap
+		if cap.reported >= *r.cfg.Heuristics.BusinessLogicMaxDiagnosticsPerPackage {
+			cap.hidden++
+			if cap.pos == token.NoPos {
+				cap.pos, cap.filePath = pos, filePath
+			}
+			return false
+		}
+		cap.reported++
 	}
 	r.pass.Report(analysis.Diagnostic{
 		Pos:      pos,

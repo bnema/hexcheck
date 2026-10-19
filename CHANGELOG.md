@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Reduce adapter business-logic noise: domain calls and mutations are weak evidence, fresh local decoding is not mutation, and decision context distinguishes policy from transport.
+- Apply the business-logic package cap after suppression bookkeeping and report the hidden count with `business-logic-diagnostics-hidden` (warn).
+
+### Added
+
+- Report inline ignore rules that suppress nothing as `unused-ignore-directive` (warn), including directives beyond the business-logic reporting cap.
+
 ## v0.3.1
 
 ### Fixed
