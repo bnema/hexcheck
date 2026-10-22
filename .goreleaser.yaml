@@ -1,10 +1,12 @@
 version: 2
 
 # Releases are published on the ermite forge through its GitHub-compatible API.
+# In CI the runner sets GITHUB_API_URL and GITHUB_SERVER_URL to the address the
+# job can reach; the public URLs are the fallback for a local run.
 github_urls:
-  api: https://git.bnema.dev/-/github/api/
-  upload: https://git.bnema.dev/-/github/api/uploads/
-  download: https://git.bnema.dev/
+  api: '{{ or (index .Env "GITHUB_API_URL") "https://git.bnema.dev/-/github/api" }}/'
+  upload: '{{ or (index .Env "GITHUB_API_URL") "https://git.bnema.dev/-/github/api" }}/uploads/'
+  download: '{{ or (index .Env "GITHUB_SERVER_URL") "https://git.bnema.dev" }}/'
 
 release:
   github:
