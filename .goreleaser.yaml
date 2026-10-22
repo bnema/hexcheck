@@ -1,6 +1,15 @@
 version: 2
 
+# Releases are published on the ermite forge through its GitHub-compatible API.
+github_urls:
+  api: https://git.bnema.dev/-/github/api/
+  upload: https://git.bnema.dev/-/github/api/uploads/
+  download: https://git.bnema.dev/
+
 release:
+  github:
+    owner: bnema
+    name: hexcheck
   draft: true
   prerelease: auto
 
