@@ -1,6 +1,6 @@
 module github.com/bnema/hexcheck
 
-go 1.27.3
+go 1.27
 
 require (
 	github.com/golangci/plugin-module-register v0.1.2
